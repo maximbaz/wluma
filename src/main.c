@@ -101,7 +101,23 @@ static int init(struct context *ctx) {
     wl_display_roundtrip(ctx->display);
     wl_display_dispatch(ctx->display);
 
+    if (!ctx->dmabuf_manager) {
+        printf("ERROR: Failed to initialize DMA-BUF manager!\n");
+        return 2;
+    }
+
     return 0;
+}
+
+static void deinit(struct context *ctx) {
+    struct wayland_output *output, *tmp_o;
+    wl_list_for_each_safe(output, tmp_o, &ctx->outputs, link) {
+        remove_output(output);
+    }
+
+    if (ctx->dmabuf_manager) {
+        zwlr_export_dmabuf_manager_v1_destroy(ctx->dmabuf_manager);
+    }
 }
 
 
@@ -110,12 +126,15 @@ static int init(struct context *ctx) {
  */
 
 int main() {
+    int err = 0;
     struct context ctx = { 0 };
 
-    int err = init(&ctx);
+    err = init(&ctx);
     if (err) {
-        return err;
+        goto exit;
     }
 
-    return 0;
+exit:
+    deinit(&ctx);
+    return err;
 }
