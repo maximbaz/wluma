@@ -1,3 +1,5 @@
+#include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,11 +7,38 @@
 
 #include "wlr-export-dmabuf-unstable-v1-client-protocol.h"
 
+struct frame {
+    uint32_t format;
+    uint32_t width;
+    uint32_t height;
+    uint32_t num_objects;
+    uint64_t format_modifier;
+
+    uint32_t strides[4];
+    uint32_t sizes[4];
+    int32_t  fds[4];
+    uint32_t offsets[4];
+    uint32_t plane_indices[4];
+};
 
 struct context {
     struct wl_display *display;
     struct wl_list outputs;
     struct zwlr_export_dmabuf_manager_v1 *dmabuf_manager;
+
+    // Target
+    struct wayland_output *target_output;
+    bool with_cursor;
+
+    // Main frame callback
+    struct zwlr_export_dmabuf_frame_v1 *frame_callback;
+
+    // Frames
+    struct frame *current_frame, *next_frame;
+
+    // Errors
+    bool quit;
+    int err;
 };
 
 struct wayland_output {
@@ -21,6 +50,69 @@ struct wayland_output {
 };
 
 static void nop() {}
+
+
+
+/******************************************************************************
+ * Frame management
+ */
+static void register_frame_listener(struct context *ctx);
+
+static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
+        uint32_t width, uint32_t height, uint32_t offset_x, uint32_t offset_y,
+        uint32_t buffer_flags, uint32_t flags, uint32_t format,
+        uint32_t mod_high, uint32_t mod_low, uint32_t num_objects) {
+    struct context *ctx = data;
+    ctx->next_frame = calloc(1, sizeof(struct frame));
+    ctx->next_frame->width = width;
+    ctx->next_frame->height = height;
+    ctx->next_frame->format = format;
+    ctx->next_frame->format_modifier = ((uint64_t)mod_high << 32) | mod_low;
+    ctx->next_frame->num_objects = num_objects;
+}
+
+static void frame_object(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
+        uint32_t index, int32_t fd, uint32_t size, uint32_t offset,
+        uint32_t stride, uint32_t plane_index) {
+    struct context *ctx = data;
+    ctx->next_frame->fds[index] = fd;
+    ctx->next_frame->sizes[index] = size;
+    ctx->next_frame->strides[index] = stride;
+    ctx->next_frame->offsets[index] = offset;
+    ctx->next_frame->plane_indices[index] = plane_index;
+}
+
+static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
+        uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+    struct context *ctx = data;
+    if (!ctx->quit && !ctx->err) {
+        register_frame_listener(ctx);
+    }
+    printf("Processed a frame!\n");
+}
+
+static void frame_cancel(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
+        uint32_t reason) {
+    struct context *ctx = data;
+    if (reason == ZWLR_EXPORT_DMABUF_FRAME_V1_CANCEL_REASON_PERMANENT) {
+        printf("ERROR: Permanent failure when capturing frame!\n");
+        ctx->err = true;
+    } else {
+        register_frame_listener(ctx);
+    }
+}
+
+static const struct zwlr_export_dmabuf_frame_v1_listener frame_listener = {
+    .frame = frame_start,
+    .object = frame_object,
+    .ready = frame_ready,
+    .cancel = frame_cancel,
+};
+
+static void register_frame_listener(struct context *ctx) {
+    ctx->frame_callback = zwlr_export_dmabuf_manager_v1_capture_output(ctx->dmabuf_manager, ctx->with_cursor, ctx->target_output->output);
+    zwlr_export_dmabuf_frame_v1_add_listener(ctx->frame_callback, &frame_listener, ctx);
+}
 
 
 /******************************************************************************
@@ -79,6 +171,36 @@ static void registry_handle_add(void *data, struct wl_registry *reg, uint32_t id
 
 
 /******************************************************************************
+ * Main loop
+ */
+struct context *quit_ctx = NULL;
+
+static void on_quit_signal(int signal) {
+    printf("\r");
+    printf("Exiting on signal: %d\n", signal);
+    quit_ctx->quit = true;
+}
+
+static int main_loop(struct context *ctx) {
+    int err;
+
+    quit_ctx = ctx;
+
+    if (signal(SIGINT, on_quit_signal) == SIG_ERR) {
+        printf("ERROR: Failed to install signal handler!\n");
+        return 1;
+    }
+
+    register_frame_listener(ctx);
+
+    // Run capture
+    while (wl_display_dispatch(ctx->display) != -1 && !ctx->err && !ctx->quit);
+
+    return ctx->err;
+}
+
+
+/******************************************************************************
  * Initialize display, register an outputs manager
  */
 static int init(struct context *ctx) {
@@ -101,9 +223,14 @@ static int init(struct context *ctx) {
     wl_display_roundtrip(ctx->display);
     wl_display_dispatch(ctx->display);
 
+    if (wl_list_empty(&ctx->outputs)) {
+        printf("ERROR: Failed to retrieve any output!\n");
+        return 1;
+    }
+
     if (!ctx->dmabuf_manager) {
         printf("ERROR: Failed to initialize DMA-BUF manager!\n");
-        return 2;
+        return 1;
     }
 
     return 0;
@@ -130,6 +257,17 @@ int main() {
     struct context ctx = { 0 };
 
     err = init(&ctx);
+    if (err) {
+        goto exit;
+    }
+
+    // TODO: handle multiple outputs
+    struct wayland_output *o, *tmp_o;
+    wl_list_for_each_safe(o, tmp_o, &ctx.outputs, link) {
+        ctx.target_output = o;
+    }
+
+    err = main_loop(&ctx);
     if (err) {
         goto exit;
     }
