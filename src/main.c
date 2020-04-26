@@ -3,11 +3,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <wayland-client.h>
 
 #include "wlr-export-dmabuf-unstable-v1-client-protocol.h"
 
 struct frame {
+    struct zwlr_export_dmabuf_frame_v1* frame;
     uint32_t format;
     uint32_t width;
     uint32_t height;
@@ -58,12 +60,25 @@ static void nop() {}
  */
 static void register_frame_listener(struct context *ctx);
 
+static void frame_free(struct frame *frame) {
+    if (frame == NULL) {
+        return;
+    }
+
+    zwlr_export_dmabuf_frame_v1_destroy(frame->frame);
+    for (uint32_t i = 0; i < frame->num_objects; i++) {
+        close(frame->fds[i]);
+    }
+    free(frame);
+}
+
 static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         uint32_t width, uint32_t height, uint32_t offset_x, uint32_t offset_y,
         uint32_t buffer_flags, uint32_t flags, uint32_t format,
         uint32_t mod_high, uint32_t mod_low, uint32_t num_objects) {
     struct context *ctx = data;
     ctx->next_frame = calloc(1, sizeof(struct frame));
+    ctx->next_frame->frame = frame;
     ctx->next_frame->width = width;
     ctx->next_frame->height = height;
     ctx->next_frame->format = format;
@@ -85,15 +100,22 @@ static void frame_object(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
     struct context *ctx = data;
+
+    // TODO finish preparing next_frame
+
+    frame_free(ctx->current_frame);
+    ctx->current_frame = ctx->next_frame;
+    ctx->next_frame = NULL;
+
     if (!ctx->quit && !ctx->err) {
         register_frame_listener(ctx);
     }
-    printf("Processed a frame!\n");
 }
 
 static void frame_cancel(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         uint32_t reason) {
     struct context *ctx = data;
+    frame_free(ctx->next_frame);
     if (reason == ZWLR_EXPORT_DMABUF_FRAME_V1_CANCEL_REASON_PERMANENT) {
         printf("ERROR: Permanent failure when capturing frame!\n");
         ctx->err = true;
