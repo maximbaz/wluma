@@ -180,7 +180,7 @@ static void frame_cancel(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
     struct context *ctx = data;
     frame_free(ctx->next_frame);
     if (reason == ZWLR_EXPORT_DMABUF_FRAME_V1_CANCEL_REASON_PERMANENT) {
-        printf("ERROR: Permanent failure when capturing frame!\n");
+        fprintf(stderr, "ERROR: Permanent failure when capturing frame!\n");
         ctx->err = true;
     } else {
         register_frame_listener(ctx);
@@ -256,7 +256,7 @@ static int main_loop(struct context *ctx) {
     quit_ctx = ctx;
 
     if (signal(SIGINT, on_quit_signal) == SIG_ERR) {
-        printf("ERROR: Failed to install signal handler!\n");
+        fprintf(stderr, "ERROR: Failed to install signal handler!\n");
         return 1;
     }
 
@@ -275,7 +275,7 @@ static int main_loop(struct context *ctx) {
 static int init(struct context *ctx) {
     ctx->display = wl_display_connect(NULL);
     if (!ctx->display) {
-        printf("ERROR: Failed to connect to display!\n");
+        fprintf(stderr, "ERROR: Failed to connect to display!\n");
         return 1;
     }
 
@@ -293,28 +293,28 @@ static int init(struct context *ctx) {
     wl_display_dispatch(ctx->display);
 
     if (wl_list_empty(&ctx->outputs)) {
-        printf("ERROR: Failed to retrieve any output!\n");
+        fprintf(stderr, "ERROR: Failed to retrieve any output!\n");
         return 1;
     }
 
     if (!ctx->dmabuf_manager) {
-        printf("ERROR: Failed to initialize DMA-BUF manager!\n");
+        fprintf(stderr, "ERROR: Failed to initialize DMA-BUF manager!\n");
         return 1;
     }
 
     if (!wlr_egl_init(&ctx->egl, EGL_PLATFORM_WAYLAND_EXT, ctx->display, NULL, WL_SHM_FORMAT_ARGB8888)) {
-        printf("ERROR: Failed to initialize EGL!\n");
+        fprintf(stderr, "ERROR: Failed to initialize EGL!\n");
         return 1;
     }
 
     if (!wlr_gles2_renderer_create(&ctx->egl)) {
-        printf("ERROR: Failed to initialize GLES2 renderer!\n");
+        fprintf(stderr, "ERROR: Failed to initialize GLES2 renderer!\n");
         return 1;
     }
 
     *(void **)&ctx->glEGLImageTargetTexture2DOES = eglGetProcAddress("glEGLImageTargetTexture2DOES");
     if (ctx->glEGLImageTargetTexture2DOES == NULL) {
-        printf("ERROR: Failed to load EGL proc glEGLImageTargetTexture2DOES!\n");
+        fprintf(stderr, "ERROR: Failed to load EGL proc glEGLImageTargetTexture2DOES!\n");
         return 1;
     }
 
