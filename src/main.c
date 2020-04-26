@@ -78,32 +78,6 @@ static void frame_free(struct frame *frame) {
     free(frame);
 }
 
-static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
-        uint32_t width, uint32_t height, uint32_t offset_x, uint32_t offset_y,
-        uint32_t buffer_flags, uint32_t flags, uint32_t format,
-        uint32_t mod_high, uint32_t mod_low, uint32_t num_objects) {
-    struct context *ctx = data;
-    ctx->next_frame = calloc(1, sizeof(struct frame));
-    ctx->next_frame->frame = frame;
-    ctx->next_frame->width = width;
-    ctx->next_frame->height = height;
-    ctx->next_frame->format = format;
-    ctx->next_frame->format_modifier = ((uint64_t)mod_high << 32) | mod_low;
-    ctx->next_frame->num_objects = num_objects;
-    ctx->next_frame->flags = flags;
-}
-
-static void frame_object(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
-        uint32_t index, int32_t fd, uint32_t size, uint32_t offset,
-        uint32_t stride, uint32_t plane_index) {
-    struct context *ctx = data;
-    ctx->next_frame->fds[index] = fd;
-    ctx->next_frame->sizes[index] = size;
-    ctx->next_frame->strides[index] = stride;
-    ctx->next_frame->offsets[index] = offset;
-    ctx->next_frame->plane_indices[index] = plane_index;
-}
-
 static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
     struct context *ctx = data;
@@ -173,6 +147,32 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         // Ask for the next frame
         register_frame_listener(ctx);
     }
+}
+
+static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
+        uint32_t width, uint32_t height, uint32_t offset_x, uint32_t offset_y,
+        uint32_t buffer_flags, uint32_t flags, uint32_t format,
+        uint32_t mod_high, uint32_t mod_low, uint32_t num_objects) {
+    struct context *ctx = data;
+    ctx->next_frame = calloc(1, sizeof(struct frame));
+    ctx->next_frame->frame = frame;
+    ctx->next_frame->width = width;
+    ctx->next_frame->height = height;
+    ctx->next_frame->format = format;
+    ctx->next_frame->format_modifier = ((uint64_t)mod_high << 32) | mod_low;
+    ctx->next_frame->num_objects = num_objects;
+    ctx->next_frame->flags = flags;
+}
+
+static void frame_object(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
+        uint32_t index, int32_t fd, uint32_t size, uint32_t offset,
+        uint32_t stride, uint32_t plane_index) {
+    struct context *ctx = data;
+    ctx->next_frame->fds[index] = fd;
+    ctx->next_frame->sizes[index] = size;
+    ctx->next_frame->strides[index] = stride;
+    ctx->next_frame->offsets[index] = offset;
+    ctx->next_frame->plane_indices[index] = plane_index;
 }
 
 static void frame_cancel(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
