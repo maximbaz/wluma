@@ -47,11 +47,7 @@ struct wayland_output {
     struct wl_output *output;
     struct wl_list link;
     uint32_t id;
-    int width;
-    int height;
 };
-
-static void nop() {}
 
 
 
@@ -140,21 +136,6 @@ static void register_frame_listener(struct context *ctx) {
 /******************************************************************************
  * Outputs management
  */
-static void output_handle_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {
-    if (flags & WL_OUTPUT_MODE_CURRENT) {
-        struct wayland_output *output = data;
-        output->width = width;
-        output->height = height;
-    }
-}
-
-static const struct wl_output_listener output_listener = {
-    .mode = output_handle_mode,
-    .geometry = nop,
-    .done = nop,
-    .scale = nop,
-};
-
 static void remove_output(struct wayland_output *out) {
     wl_list_remove(&out->link);
 }
@@ -182,7 +163,6 @@ static void registry_handle_add(void *data, struct wl_registry *reg, uint32_t id
         output->id = id;
         output->output = wl_registry_bind(reg, id, &wl_output_interface, ver);
 
-        wl_output_add_listener(output->output, &output_listener, output);
         wl_list_insert(&ctx->outputs, &output->link);
     }
 
