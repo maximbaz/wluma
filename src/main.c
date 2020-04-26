@@ -1,10 +1,16 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
+
 #include <wayland-client.h>
+#include <wlr/render/gles2.h>
+#include <GLES2/gl2ext.h>
 
 #include "wlr-export-dmabuf-unstable-v1-client-protocol.h"
 
@@ -14,6 +20,7 @@ struct frame {
     uint32_t width;
     uint32_t height;
     uint32_t num_objects;
+    uint32_t flags;
     uint64_t format_modifier;
 
     uint32_t strides[4];
@@ -38,6 +45,10 @@ struct context {
     // Frames
     struct frame *current_frame, *next_frame;
 
+    // EGL
+    struct wlr_egl egl;
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
+
     // Errors
     bool quit;
     int err;
@@ -48,7 +59,6 @@ struct wayland_output {
     struct wl_list link;
     uint32_t id;
 };
-
 
 
 /******************************************************************************
@@ -80,6 +90,7 @@ static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
     ctx->next_frame->format = format;
     ctx->next_frame->format_modifier = ((uint64_t)mod_high << 32) | mod_low;
     ctx->next_frame->num_objects = num_objects;
+    ctx->next_frame->flags = flags;
 }
 
 static void frame_object(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
@@ -97,13 +108,69 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
     struct context *ctx = data;
 
-    // TODO finish preparing next_frame
+    // Re-create expected attributes structure
+    struct wlr_dmabuf_attributes attribs = {
+        .width = ctx->next_frame->width,
+        .height = ctx->next_frame->height,
+        .format = ctx->next_frame->format,
+        .flags = ctx->next_frame->flags,
+        .modifier = ctx->next_frame->format_modifier,
+        .n_planes = ctx->next_frame->num_objects,
+    };
+    memcpy(attribs.offset, ctx->next_frame->offsets, sizeof(attribs.offset));
+    memcpy(attribs.stride, ctx->next_frame->strides, sizeof(attribs.stride));
+    memcpy(attribs.fd, ctx->next_frame->fds, sizeof(attribs.fd));
 
+    // Create an image of the current frame
+    EGLImageKHR img = wlr_egl_create_image_from_dmabuf(&ctx->egl, &attribs);
+
+    // Create a texture to hold the frame
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    // Convert the image to a texture we can later use
+    ctx->glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, img);
+
+    // Generate mipmaps
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    // Compute the level of the smallest 1x1 mipmap level, containing average pixel value for the entire frame
+    double smallestMipmapLevel = floor(log2(fmax(ctx->next_frame->width, ctx->next_frame->height)));
+
+    // glGetTexImage() seems to be unavailable, so we can't read out the mipmap values directly :(
+
+    // Prepare a framebuffer to draw out mipmap on
+    GLuint framebuffer;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+    // Draw smallest mipmap level of our texture onto the framebuffer
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, smallestMipmapLevel);
+
+    // Read out the one and only pixel from the framebuffer
+    GLubyte pixels[] = {0, 0, 0, 0};
+    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
+    // DEBUG check
+    printf("RGB=#%x%x%x A=%d\n", pixels[0], pixels[1], pixels[2], pixels[3]);
+
+    // Cleanup
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &texture);
     frame_free(ctx->current_frame);
     ctx->current_frame = ctx->next_frame;
     ctx->next_frame = NULL;
 
     if (!ctx->quit && !ctx->err) {
+        // Sleep a bit before asking for the next frame
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 100 * 1000 * 1000;
+        nanosleep(&ts, NULL);
+
+        // Ask for the next frame
         register_frame_listener(ctx);
     }
 }
@@ -232,6 +299,22 @@ static int init(struct context *ctx) {
 
     if (!ctx->dmabuf_manager) {
         printf("ERROR: Failed to initialize DMA-BUF manager!\n");
+        return 1;
+    }
+
+    if (!wlr_egl_init(&ctx->egl, EGL_PLATFORM_WAYLAND_EXT, ctx->display, NULL, WL_SHM_FORMAT_ARGB8888)) {
+        printf("ERROR: Failed to initialize EGL!\n");
+        return 1;
+    }
+
+    if (!wlr_gles2_renderer_create(&ctx->egl)) {
+        printf("ERROR: Failed to initialize GLES2 renderer!\n");
+        return 1;
+    }
+
+    *(void **)&ctx->glEGLImageTargetTexture2DOES = eglGetProcAddress("glEGLImageTargetTexture2DOES");
+    if (ctx->glEGLImageTargetTexture2DOES == NULL) {
+        printf("ERROR: Failed to load EGL proc glEGLImageTargetTexture2DOES!\n");
         return 1;
     }
 
