@@ -94,7 +94,9 @@ struct Context {
 
 static long pread_long(int fd) {
     char buf[50];
-    pread(fd, buf, 50, 0);
+    if (pread(fd, buf, 50, 0) < 0) {
+	    return -1;
+    }
     return strtol(buf, NULL, 10);
 }
 
