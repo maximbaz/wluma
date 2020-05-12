@@ -7,14 +7,25 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
-
+#include <vulkan/vulkan.h>
 #include <wayland-client.h>
-#include <wlr/render/gles2.h>
-#include <GLES2/gl2ext.h>
 
 #include "wlr-export-dmabuf-unstable-v1-client-protocol.h"
 
-struct frame {
+#define MS_100 (100 * 1000000L)
+
+struct Vulkan {
+    VkInstance instance;
+    VkDevice device;
+    VkQueue queue;
+    VkCommandPool command_pool;
+    VkCommandBuffer command_buffer;
+    VkBuffer buffer;
+    VkDeviceMemory buffer_memory;
+    VkFence fence;
+};
+
+struct Frame {
     struct zwlr_export_dmabuf_frame_v1* frame;
     uint32_t format;
     uint32_t width;
@@ -30,119 +41,381 @@ struct frame {
     uint32_t plane_indices[4];
 };
 
-struct context {
+struct VulkanFrame {
+    uint32_t mip_levels;
+    VkImage image;
+    VkDeviceMemory image_memory;
+};
+
+struct WaylandOutput {
+    struct wl_output *output;
+    struct wl_list link;
+    uint32_t id;
+};
+
+struct Context {
     struct wl_display *display;
     struct wl_list outputs;
     struct zwlr_export_dmabuf_manager_v1 *dmabuf_manager;
 
     // Target
-    struct wayland_output *target_output;
+    struct WaylandOutput *target_output;
     bool with_cursor;
 
     // Main frame callback
     struct zwlr_export_dmabuf_frame_v1 *frame_callback;
 
-    // Frames
-    struct frame *current_frame, *next_frame;
+    // Vulkan context
+    struct Vulkan *vulkan;
 
-    // EGL
-    struct wlr_egl egl;
-    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
+    // DMA-BUF frame
+    struct Frame *frame;
+
+    // Vulkan structs for processing frames, might be reused
+    struct VulkanFrame *vulkan_frame;
 
     // Errors
     bool quit;
     int err;
 };
 
-struct wayland_output {
-    struct wl_output *output;
-    struct wl_list link;
-    uint32_t id;
-};
 
+/******************************************************************************
+ * Vulkan
+ */
+
+static void init_frame_vulkan(struct Context *ctx) {
+    if (ctx->vulkan_frame) {
+        // TODO support resized frames
+        return;
+    }
+
+    ctx->vulkan_frame = malloc(sizeof(struct VulkanFrame));
+
+    ctx->vulkan_frame->mip_levels = 1 + floor(log2(fmax(ctx->frame->width, ctx->frame->height)));
+
+    VkImageCreateInfo imageInfo = {
+        .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType     = VK_IMAGE_TYPE_2D,
+        .format        = VK_FORMAT_B8G8R8A8_UNORM,
+        .extent.width  = ctx->frame->width,
+        .extent.height = ctx->frame->height,
+        .extent.depth  = 1,
+        .mipLevels     = ctx->vulkan_frame->mip_levels,
+        .arrayLayers   = 1,
+        .tiling        = VK_IMAGE_TILING_OPTIMAL,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+        .samples       = VK_SAMPLE_COUNT_1_BIT,
+    };
+
+    if (vkCreateImage(ctx->vulkan->device, &imageInfo, NULL, &ctx->vulkan_frame->image) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to create Vulkan image!\n");
+        goto fail;
+    }
+
+    VkMemoryRequirements imageMemoryRequirements;
+    vkGetImageMemoryRequirements(ctx->vulkan->device, ctx->vulkan_frame->image, &imageMemoryRequirements);
+
+    VkMemoryAllocateInfo imageMemoryAllocateInfo = {
+        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize  = imageMemoryRequirements.size,
+        .memoryTypeIndex = 0,
+    };
+
+    if (vkAllocateMemory(ctx->vulkan->device, &imageMemoryAllocateInfo, NULL, &ctx->vulkan_frame->image_memory) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to allocate memory for Vulkan image!\n");
+        goto fail;
+    }
+
+    if (vkBindImageMemory(ctx->vulkan->device, ctx->vulkan_frame->image, ctx->vulkan_frame->image_memory, 0) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to bind allocated memory for Vulkan image!\n");
+        goto fail;
+    }
+
+    return;
+
+fail:
+    free(ctx->vulkan_frame);
+    ctx->vulkan_frame = NULL;
+}
+
+static int compute_frame_luma_pct(struct Context *ctx) {
+    int result = -1;
+
+    if (ctx->vulkan_frame == NULL) {
+        fprintf(stderr, "ERROR: Vulkan objects were not prepared, skipping frame!\n");
+        goto exit;
+    }
+
+    VkExternalMemoryImageCreateInfo frameImageMemoryInfo = {
+        .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+    };
+
+    VkImageCreateInfo frameImageInfo = {
+        .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext         = &frameImageMemoryInfo,
+        .imageType     = VK_IMAGE_TYPE_2D,
+        .format        = VK_FORMAT_R8G8B8A8_UNORM,
+        .extent.width  = ctx->frame->width,
+        .extent.height = ctx->frame->height,
+        .extent.depth  = 1,
+        .mipLevels     = 1,
+        .arrayLayers   = 1,
+        .flags         = VK_IMAGE_CREATE_ALIAS_BIT,
+        .tiling        = VK_IMAGE_TILING_OPTIMAL,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, // specs say so
+        .usage         = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+        .samples       = VK_SAMPLE_COUNT_1_BIT,
+    };
+
+    VkImage frameImage;
+    if (vkCreateImage(ctx->vulkan->device, &frameImageInfo, NULL, &frameImage) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to create Vulkan frame image!\n");
+        goto exit;
+    }
+
+    VkImportMemoryFdInfoKHR idesc = {
+        .sType      = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+        .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        .fd         = dup(ctx->frame->fds[0]),
+    };
+    VkMemoryAllocateInfo alloc_info = {
+        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext           = &idesc,
+        .allocationSize = ctx->frame->sizes[0],
+        .memoryTypeIndex = 0,
+    };
+
+    VkDeviceMemory frameImageMemory;
+    if (vkAllocateMemory(ctx->vulkan->device, &alloc_info, NULL, &frameImageMemory) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to allocate memory for Vulkan frame image!\n");
+        goto exit;
+    }
+
+    if (vkBindImageMemory(ctx->vulkan->device, frameImage, frameImageMemory, 0) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to bind allocated memory for Vulkan frame image!\n");
+        goto exit;
+    }
+
+    VkCommandBufferBeginInfo commandBufferBeginInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+
+    if (vkBeginCommandBuffer(ctx->vulkan->command_buffer, &commandBufferBeginInfo) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to begin Vulkan command buffer!\n");
+        goto exit;
+    }
+
+    VkImageMemoryBarrier frameImageBarrier = {
+        .sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .oldLayout                       = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout                       = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED,
+        .image                           = frameImage,
+        .subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .subresourceRange.baseArrayLayer = 0,
+        .subresourceRange.baseMipLevel   = 0,
+        .subresourceRange.layerCount     = 1,
+        .subresourceRange.levelCount     = 1,
+        .srcAccessMask                   = 0,
+        .dstAccessMask                   = VK_ACCESS_TRANSFER_READ_BIT,
+    };
+
+    vkCmdPipelineBarrier(ctx->vulkan->command_buffer,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+        0, NULL,
+        0, NULL,
+        1, &frameImageBarrier);
+
+    VkImageMemoryBarrier imageBarrier = {
+        .sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .oldLayout                       = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout                       = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED,
+        .image                           = ctx->vulkan_frame->image,
+        .subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .subresourceRange.baseArrayLayer = 0,
+        .subresourceRange.baseMipLevel   = 0,
+        .subresourceRange.layerCount     = 1,
+        .subresourceRange.levelCount     = ctx->vulkan_frame->mip_levels,
+        .srcAccessMask                   = 0,
+        .dstAccessMask                   = VK_ACCESS_TRANSFER_WRITE_BIT,
+    };
+
+    vkCmdPipelineBarrier(ctx->vulkan->command_buffer,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+        0, NULL,
+        0, NULL,
+        1, &imageBarrier);
+
+    VkImageBlit blit = {
+        .srcOffsets[0]                 = { 0, 0, 0 },
+        .srcOffsets[1]                 = { ctx->frame->width, ctx->frame->height, 1 },
+        .srcSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .srcSubresource.mipLevel       = 0,
+        .srcSubresource.baseArrayLayer = 0,
+        .srcSubresource.layerCount     = 1,
+        .dstOffsets[0]                 = { 0, 0, 0 },
+        .dstOffsets[1]                 = { ctx->frame->width, ctx->frame->height, 1 },
+        .dstSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .dstSubresource.mipLevel       = 0,
+        .dstSubresource.baseArrayLayer = 0,
+        .dstSubresource.layerCount     = 1,
+    };
+
+    vkCmdBlitImage(ctx->vulkan->command_buffer,
+        frameImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        ctx->vulkan_frame->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &blit,
+        VK_FILTER_LINEAR);
+
+    imageBarrier.subresourceRange.levelCount = 1;
+    uint32_t mipWidth  = ctx->frame->width;
+    uint32_t mipHeight = ctx->frame->height;
+
+    for (uint32_t i = 1; i < ctx->vulkan_frame->mip_levels; i++) {
+        imageBarrier.subresourceRange.baseMipLevel = i - 1;
+        imageBarrier.oldLayout                     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imageBarrier.newLayout                     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        imageBarrier.srcAccessMask                 = VK_ACCESS_TRANSFER_WRITE_BIT;
+        imageBarrier.dstAccessMask                 = VK_ACCESS_TRANSFER_READ_BIT;
+
+        vkCmdPipelineBarrier(ctx->vulkan->command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            0, NULL,
+            0, NULL,
+            1, &imageBarrier);
+
+        blit.srcOffsets[1] = (VkOffset3D) { mipWidth, mipHeight, 1 };
+        blit.dstOffsets[1] = (VkOffset3D) { mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1 };
+        blit.srcSubresource.mipLevel = i - 1;
+        blit.dstSubresource.mipLevel = i;
+
+        vkCmdBlitImage(ctx->vulkan->command_buffer,
+            ctx->vulkan_frame->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            ctx->vulkan_frame->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &blit,
+            VK_FILTER_LINEAR);
+
+        if (mipWidth > 1)  mipWidth /= 2;
+        if (mipHeight > 1) mipHeight /= 2;
+    }
+
+    imageBarrier.subresourceRange.baseMipLevel = ctx->vulkan_frame->mip_levels - 1;
+    imageBarrier.oldLayout                     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    imageBarrier.newLayout                     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    imageBarrier.srcAccessMask                 = VK_ACCESS_TRANSFER_WRITE_BIT;
+    imageBarrier.dstAccessMask                 = VK_ACCESS_TRANSFER_READ_BIT;
+
+    vkCmdPipelineBarrier(ctx->vulkan->command_buffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+        0, NULL,
+        0, NULL,
+        1, &imageBarrier);
+
+    VkBufferImageCopy region = {
+        .bufferOffset                    = 0,
+        .bufferRowLength                 = 0,
+        .bufferImageHeight               = 0,
+        .imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .imageSubresource.mipLevel       = ctx->vulkan_frame->mip_levels - 1,
+        .imageSubresource.baseArrayLayer = 0,
+        .imageSubresource.layerCount     = 1,
+        .imageOffset                     = { 0, 0, 0 },
+        .imageExtent                     = { 1, 1, 1 },
+    };
+
+    vkCmdCopyImageToBuffer(ctx->vulkan->command_buffer, ctx->vulkan_frame->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ctx->vulkan->buffer, 1, &region);
+
+    if (vkEndCommandBuffer(ctx->vulkan->command_buffer) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to end Vulkan command buffer!\n");
+        goto exit;
+    }
+
+    VkSubmitInfo submitInfo = {
+        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers    = &ctx->vulkan->command_buffer,
+    };
+
+    if (vkQueueSubmit(ctx->vulkan->queue, 1, &submitInfo, ctx->vulkan->fence) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to submit Vulkan queue!\n");
+        goto exit;
+    }
+
+    if (vkWaitForFences(ctx->vulkan->device, 1, &ctx->vulkan->fence, 1, MS_100) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to wait for Vulkan fence!\n");
+        goto exit;
+    }
+
+    unsigned char* rgba;
+    if (vkMapMemory(ctx->vulkan->device, ctx->vulkan->buffer_memory, 0, VK_WHOLE_SIZE, 0, (void *)&rgba) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to map Vulkan buffer memory!\n");
+        goto exit;
+    }
+
+    unsigned char r = rgba[0], g = rgba[1], b = rgba[2];
+    result = sqrt(0.241 * r * r + 0.691 * g * g + 0.068 * b * b) / 255.0 * 100.0;
+
+    vkUnmapMemory(ctx->vulkan->device, ctx->vulkan->buffer_memory);
+
+    if (vkResetFences(ctx->vulkan->device, 1, &ctx->vulkan->fence) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to reset Vulkan fence!\n");
+        goto exit;
+    }
+
+exit:
+    if (frameImage)       vkDestroyImage(ctx->vulkan->device, frameImage, NULL);
+    if (frameImageMemory) vkFreeMemory(ctx->vulkan->device, frameImageMemory, NULL);
+
+    return result;
+}
 
 /******************************************************************************
  * Frame management
  */
-static void register_frame_listener(struct context *ctx);
+static void register_frame_listener(struct Context *ctx);
 
-static void frame_free(struct frame *frame) {
-    if (frame == NULL) {
+static void frame_free(struct Context *ctx) {
+    if (ctx->frame == NULL) {
         return;
     }
 
-    zwlr_export_dmabuf_frame_v1_destroy(frame->frame);
-    for (uint32_t i = 0; i < frame->num_objects; i++) {
-        close(frame->fds[i]);
+    zwlr_export_dmabuf_frame_v1_destroy(ctx->frame->frame);
+
+    for (uint32_t i = 0; i < ctx->frame->num_objects; i++) {
+        close(ctx->frame->fds[i]);
     }
-    free(frame);
+
+    free(ctx->frame);
+    ctx->frame = NULL;
 }
 
 static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
-        uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
-    struct context *ctx = data;
+                        uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+    struct Context *ctx = data;
 
-    // Re-create expected attributes structure
-    struct wlr_dmabuf_attributes attribs = {
-        .width = ctx->next_frame->width,
-        .height = ctx->next_frame->height,
-        .format = ctx->next_frame->format,
-        .flags = ctx->next_frame->flags,
-        .modifier = ctx->next_frame->format_modifier,
-        .n_planes = ctx->next_frame->num_objects,
-    };
-    memcpy(attribs.offset, ctx->next_frame->offsets, sizeof(attribs.offset));
-    memcpy(attribs.stride, ctx->next_frame->strides, sizeof(attribs.stride));
-    memcpy(attribs.fd, ctx->next_frame->fds, sizeof(attribs.fd));
+    int luma = compute_frame_luma_pct(ctx);
+    printf("luma: %d%%\n", luma);
 
-    // Create an image of the current frame
-    EGLImageKHR img = wlr_egl_create_image_from_dmabuf(&ctx->egl, &attribs);
-
-    // Create a texture to hold the frame
-    GLuint texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-
-    // Convert the image to a texture we can later use
-    ctx->glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, img);
-
-    // Generate mipmaps
-    glGenerateMipmap(GL_TEXTURE_2D);
-
-    // Compute the level of the smallest 1x1 mipmap level, containing average pixel value for the entire frame
-    double smallestMipmapLevel = floor(log2(fmax(ctx->next_frame->width, ctx->next_frame->height)));
-
-    // glGetTexImage() seems to be unavailable, so we can't read out the mipmap values directly :(
-
-    // Prepare a framebuffer to draw out mipmap on
-    GLuint framebuffer;
-    glGenFramebuffers(1, &framebuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-
-    // Draw smallest mipmap level of our texture onto the framebuffer
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, smallestMipmapLevel);
-
-    // Read out the one and only pixel from the framebuffer
-    GLubyte pixels[] = {0, 0, 0, 0};
-    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-
-    // DEBUG check
-    printf("RGB=#%x%x%x A=%d\n", pixels[0], pixels[1], pixels[2], pixels[3]);
-
-    // Cleanup
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glDeleteTextures(1, &texture);
-    frame_free(ctx->current_frame);
-    ctx->current_frame = ctx->next_frame;
-    ctx->next_frame = NULL;
+    frame_free(ctx);
 
     if (!ctx->quit && !ctx->err) {
         // Sleep a bit before asking for the next frame
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = 100 * 1000 * 1000;
-        nanosleep(&ts, NULL);
+        struct timespec ts = {
+            .tv_sec = 0,
+            .tv_nsec = MS_100,
+        };
+        while (nanosleep(&ts, &ts) == -1) {
+            continue;
+        }
 
         // Ask for the next frame
         register_frame_listener(ctx);
@@ -153,32 +426,38 @@ static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         uint32_t width, uint32_t height, uint32_t offset_x, uint32_t offset_y,
         uint32_t buffer_flags, uint32_t flags, uint32_t format,
         uint32_t mod_high, uint32_t mod_low, uint32_t num_objects) {
-    struct context *ctx = data;
-    ctx->next_frame = calloc(1, sizeof(struct frame));
-    ctx->next_frame->frame = frame;
-    ctx->next_frame->width = width;
-    ctx->next_frame->height = height;
-    ctx->next_frame->format = format;
-    ctx->next_frame->format_modifier = ((uint64_t)mod_high << 32) | mod_low;
-    ctx->next_frame->num_objects = num_objects;
-    ctx->next_frame->flags = flags;
+    struct Context *ctx = data;
+
+    ctx->frame = malloc(sizeof(struct Frame));
+    ctx->frame->frame = frame;
+    ctx->frame->width = width;
+    ctx->frame->height = height;
+    ctx->frame->format = format;
+    ctx->frame->format_modifier = ((uint64_t)mod_high << 32) | mod_low;
+    ctx->frame->num_objects = num_objects;
+    ctx->frame->flags = flags;
+
+    init_frame_vulkan(ctx);
 }
 
 static void frame_object(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         uint32_t index, int32_t fd, uint32_t size, uint32_t offset,
         uint32_t stride, uint32_t plane_index) {
-    struct context *ctx = data;
-    ctx->next_frame->fds[index] = fd;
-    ctx->next_frame->sizes[index] = size;
-    ctx->next_frame->strides[index] = stride;
-    ctx->next_frame->offsets[index] = offset;
-    ctx->next_frame->plane_indices[index] = plane_index;
+    struct Context *ctx = data;
+
+    ctx->frame->fds[index] = fd;
+    ctx->frame->sizes[index] = size;
+    ctx->frame->strides[index] = stride;
+    ctx->frame->offsets[index] = offset;
+    ctx->frame->plane_indices[index] = plane_index;
 }
 
 static void frame_cancel(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         uint32_t reason) {
-    struct context *ctx = data;
-    frame_free(ctx->next_frame);
+    struct Context *ctx = data;
+
+    frame_free(ctx);
+
     if (reason == ZWLR_EXPORT_DMABUF_FRAME_V1_CANCEL_REASON_PERMANENT) {
         fprintf(stderr, "ERROR: Permanent failure when capturing frame!\n");
         ctx->err = true;
@@ -188,13 +467,13 @@ static void frame_cancel(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 }
 
 static const struct zwlr_export_dmabuf_frame_v1_listener frame_listener = {
-    .frame = frame_start,
+    .frame  = frame_start,
     .object = frame_object,
-    .ready = frame_ready,
+    .ready  = frame_ready,
     .cancel = frame_cancel,
 };
 
-static void register_frame_listener(struct context *ctx) {
+static void register_frame_listener(struct Context *ctx) {
     ctx->frame_callback = zwlr_export_dmabuf_manager_v1_capture_output(ctx->dmabuf_manager, ctx->with_cursor, ctx->target_output->output);
     zwlr_export_dmabuf_frame_v1_add_listener(ctx->frame_callback, &frame_listener, ctx);
 }
@@ -203,12 +482,12 @@ static void register_frame_listener(struct context *ctx) {
 /******************************************************************************
  * Outputs management
  */
-static void remove_output(struct wayland_output *out) {
+static void remove_output(struct WaylandOutput *out) {
     wl_list_remove(&out->link);
 }
 
-static struct wayland_output* find_output(struct context *ctx, struct wl_output *out, uint32_t id) {
-    struct wayland_output *output, *tmp;
+static struct WaylandOutput* find_output(struct Context *ctx, struct wl_output *out, uint32_t id) {
+    struct WaylandOutput *output, *tmp;
     wl_list_for_each_safe(output, tmp, &ctx->outputs, link) {
         if ((output->output == out) || (output->id == id)) {
             return output;
@@ -218,14 +497,14 @@ static struct wayland_output* find_output(struct context *ctx, struct wl_output 
 }
 
 static void registry_handle_remove(void *data, struct wl_registry *reg, uint32_t id) {
-    remove_output(find_output((struct context*)data, NULL, id));
+    remove_output(find_output((struct Context*)data, NULL, id));
 }
 
 static void registry_handle_add(void *data, struct wl_registry *reg, uint32_t id, const char *interface, uint32_t ver) {
-    struct context *ctx = data;
+    struct Context *ctx = data;
 
     if (strcmp(interface, wl_output_interface.name) == 0) {
-        struct wayland_output *output = malloc(sizeof(struct wayland_output));
+        struct WaylandOutput *output = malloc(sizeof(struct WaylandOutput));
 
         output->id = id;
         output->output = wl_registry_bind(reg, id, &wl_output_interface, ver);
@@ -242,22 +521,21 @@ static void registry_handle_add(void *data, struct wl_registry *reg, uint32_t id
 /******************************************************************************
  * Main loop
  */
-struct context *quit_ctx = NULL;
+struct Context *quit_ctx = NULL;
 
 static void on_quit_signal(int signal) {
     printf("\r");
-    printf("Exiting on signal: %d\n", signal);
     quit_ctx->quit = true;
 }
 
-static int main_loop(struct context *ctx) {
+static int main_loop(struct Context *ctx) {
     int err;
 
     quit_ctx = ctx;
 
     if (signal(SIGINT, on_quit_signal) == SIG_ERR) {
         fprintf(stderr, "ERROR: Failed to install signal handler!\n");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     register_frame_listener(ctx);
@@ -270,13 +548,13 @@ static int main_loop(struct context *ctx) {
 
 
 /******************************************************************************
- * Initialize display, register an outputs manager
+ * Initialize Wayland client and Vulkan API
  */
-static int init(struct context *ctx) {
+static int init(struct Context *ctx) {
     ctx->display = wl_display_connect(NULL);
     if (!ctx->display) {
         fprintf(stderr, "ERROR: Failed to connect to display!\n");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     wl_list_init(&ctx->outputs);
@@ -294,41 +572,168 @@ static int init(struct context *ctx) {
 
     if (wl_list_empty(&ctx->outputs)) {
         fprintf(stderr, "ERROR: Failed to retrieve any output!\n");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     if (!ctx->dmabuf_manager) {
         fprintf(stderr, "ERROR: Failed to initialize DMA-BUF manager!\n");
-        return 1;
+        return EXIT_FAILURE;
     }
 
-    if (!wlr_egl_init(&ctx->egl, EGL_PLATFORM_WAYLAND_EXT, ctx->display, NULL, WL_SHM_FORMAT_ARGB8888)) {
-        fprintf(stderr, "ERROR: Failed to initialize EGL!\n");
-        return 1;
+    ctx->vulkan = malloc(sizeof(struct Vulkan));
+
+    VkApplicationInfo appInfo = {
+        .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pApplicationName   = "wluma",
+        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+        .pEngineName        = "No Engine",
+        .engineVersion      = VK_MAKE_VERSION(1, 0, 0),
+        .apiVersion         = VK_API_VERSION_1_0,
+    };
+
+    VkInstanceCreateInfo instanceCreateInfo = {
+        .sType             = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pApplicationInfo  = &appInfo,
+    };
+
+    if (vkCreateInstance(&instanceCreateInfo, NULL, &ctx->vulkan->instance) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to initialize Vulkan instance!\n");
+        return EXIT_FAILURE;
     }
 
-    if (!wlr_gles2_renderer_create(&ctx->egl)) {
-        fprintf(stderr, "ERROR: Failed to initialize GLES2 renderer!\n");
-        return 1;
+    VkPhysicalDevice physicalDevice;
+    uint32_t deviceCount;
+    if (vkEnumeratePhysicalDevices(ctx->vulkan->instance, &deviceCount, NULL) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to retrieve Vulkan physical device!\n");
+        return EXIT_FAILURE;
     }
 
-    *(void **)&ctx->glEGLImageTargetTexture2DOES = eglGetProcAddress("glEGLImageTargetTexture2DOES");
-    if (ctx->glEGLImageTargetTexture2DOES == NULL) {
-        fprintf(stderr, "ERROR: Failed to load EGL proc glEGLImageTargetTexture2DOES!\n");
-        return 1;
+    if (deviceCount == 0) {
+        fprintf(stderr, "ERROR: No physical device that supports Vulkan!\n");
+        return EXIT_FAILURE;
     }
 
-    return 0;
+    VkPhysicalDevice *physicalDevices = calloc(deviceCount, sizeof(VkPhysicalDevice));
+    if (vkEnumeratePhysicalDevices(ctx->vulkan->instance, &deviceCount, physicalDevices) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to retrieve Vulkan physical device!\n");
+        return EXIT_FAILURE;
+    }
+    // TODO handle multiple physical devices
+    physicalDevice = physicalDevices[0];
+    free(physicalDevices);
+
+    float queuePriority = 1.0f;
+    VkDeviceQueueCreateInfo queueCreateInfo = {
+        .sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = 0,
+        .queueCount       = 1,
+        .pQueuePriorities = &queuePriority,
+    };
+
+    VkDeviceCreateInfo deviceCreateInfo = {
+        .sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pQueueCreateInfos    = &queueCreateInfo,
+        .queueCreateInfoCount = 1,
+    };
+
+    if (vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, &ctx->vulkan->device) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to initialize Vulkan logical device!\n");
+        return EXIT_FAILURE;
+    }
+
+    vkGetDeviceQueue(ctx->vulkan->device, 0, 0, &ctx->vulkan->queue);
+
+    VkCommandPoolCreateInfo poolInfo = {
+        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .queueFamilyIndex = 0,
+        .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+    };
+
+    if (vkCreateCommandPool(ctx->vulkan->device, &poolInfo, NULL, &ctx->vulkan->command_pool) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to create Vulkan command pool!\n");
+        return EXIT_FAILURE;
+    }
+
+    VkCommandBufferAllocateInfo cmdBufferAllocInfo = {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandPool        = ctx->vulkan->command_pool,
+        .commandBufferCount = 1,
+    };
+
+    if (vkAllocateCommandBuffers(ctx->vulkan->device, &cmdBufferAllocInfo, &ctx->vulkan->command_buffer) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to allocate Vulkan command buffer!\n");
+        return EXIT_FAILURE;
+    }
+
+    VkBufferCreateInfo bufferInfo = {
+        .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size        = 4, // 1 byte per RGBA
+        .usage       = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+    };
+
+    if (vkCreateBuffer(ctx->vulkan->device, &bufferInfo, NULL, &ctx->vulkan->buffer) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to create Vulkan buffer!\n");
+        return EXIT_FAILURE;
+    }
+
+    VkMemoryRequirements bufferMemoryRequirements;
+    vkGetBufferMemoryRequirements(ctx->vulkan->device, ctx->vulkan->buffer, &bufferMemoryRequirements);
+
+    VkMemoryAllocateInfo bufferMemoryAllocateInfo ={
+        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize  = bufferMemoryRequirements.size,
+        .memoryTypeIndex = 0,
+    };
+
+    if (vkAllocateMemory(ctx->vulkan->device, &bufferMemoryAllocateInfo, NULL, &ctx->vulkan->buffer_memory) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to allocate memory for Vulkan buffer!\n");
+        return EXIT_FAILURE;
+    }
+
+    if (vkBindBufferMemory(ctx->vulkan->device, ctx->vulkan->buffer, ctx->vulkan->buffer_memory, 0) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to bind allocated memory for Vulkan buffer!\n");
+        return EXIT_FAILURE;
+    }
+
+    VkFenceCreateInfo fenceInfo = {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+    };
+
+    if (vkCreateFence(ctx->vulkan->device, &fenceInfo, NULL, &ctx->vulkan->fence) != VK_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to create Vulkan fence!\n");
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
 }
 
-static void deinit(struct context *ctx) {
-    struct wayland_output *output, *tmp_o;
+static void deinit(struct Context *ctx) {
+    struct WaylandOutput *output, *tmp_o;
     wl_list_for_each_safe(output, tmp_o, &ctx->outputs, link) {
         remove_output(output);
     }
 
-    if (ctx->dmabuf_manager) {
-        zwlr_export_dmabuf_manager_v1_destroy(ctx->dmabuf_manager);
+    if (ctx->dmabuf_manager) zwlr_export_dmabuf_manager_v1_destroy(ctx->dmabuf_manager);
+
+    if (ctx->vulkan_frame) {
+        if (ctx->vulkan_frame->image)        vkDestroyImage(ctx->vulkan->device, ctx->vulkan_frame->image, NULL);
+        if (ctx->vulkan_frame->image_memory) vkFreeMemory(ctx->vulkan->device, ctx->vulkan_frame->image_memory, NULL);
+
+        free(ctx->vulkan_frame);
+    }
+
+    if (ctx->vulkan_frame) {
+        if (ctx->vulkan->fence)          vkDestroyFence(ctx->vulkan->device, ctx->vulkan->fence, NULL);
+        if (ctx->vulkan->buffer)         vkDestroyBuffer(ctx->vulkan->device, ctx->vulkan->buffer, NULL);
+        if (ctx->vulkan->buffer_memory)  vkFreeMemory(ctx->vulkan->device, ctx->vulkan->buffer_memory, NULL);
+        if (ctx->vulkan->command_buffer) vkFreeCommandBuffers(ctx->vulkan->device, ctx->vulkan->command_pool, 1, &ctx->vulkan->command_buffer);
+        if (ctx->vulkan->command_pool)   vkDestroyCommandPool(ctx->vulkan->device, ctx->vulkan->command_pool, NULL);
+        if (ctx->vulkan->device)         vkDestroyDevice(ctx->vulkan->device, NULL);
+        if (ctx->vulkan->instance)       vkDestroyInstance(ctx->vulkan->instance, NULL);
+
+        free(ctx->vulkan);
     }
 }
 
@@ -338,16 +743,16 @@ static void deinit(struct context *ctx) {
  */
 
 int main() {
-    int err = 0;
-    struct context ctx = { 0 };
+    int err = EXIT_SUCCESS;
+    struct Context ctx = { 0 };
 
     err = init(&ctx);
     if (err) {
         goto exit;
     }
 
-    // TODO: handle multiple outputs
-    struct wayland_output *o, *tmp_o;
+    // TODO handle multiple outputs
+    struct WaylandOutput *o, *tmp_o;
     wl_list_for_each_safe(o, tmp_o, &ctx.outputs, link) {
         ctx.target_output = o;
     }

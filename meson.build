@@ -1,5 +1,5 @@
 project(
-    'wlsun',
+    'wluma',
     'c',
     version: '0.1.0',
     license: 'MIT',
@@ -19,9 +19,7 @@ add_project_arguments([
 
 wayland_client = dependency('wayland-client')
 
-egl = dependency('egl')
-glesv2 = dependency('glesv2')
-wlroots = dependency('wlroots')
+vulkan = dependency('vulkan')
 
 cc = meson.get_compiler('c')
 math = cc.find_library('m', required : false)
@@ -32,10 +30,8 @@ subdir('protocol')
 
 dependencies = [
     client_protos,
-    egl,
-    glesv2,
+    vulkan,
     math,
-    wlroots,
 ]
 
 executable(
