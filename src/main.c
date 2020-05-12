@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -77,11 +78,25 @@ struct Context {
     // Ambient light sensor raw data
     int light_sensor_raw_fd;
 
+    // Backlight control
+    int backlight_raw_fd;
+    uint32_t backlight_max_value;
+
     // Errors
     bool quit;
     int err;
 };
 
+
+/******************************************************************************
+ * Utilities
+ */
+
+static long pread_long(int fd) {
+    char buf[50];
+    pread(fd, buf, 50, 0);
+    return strtol(buf, NULL, 10);
+}
 
 /******************************************************************************
  * Vulkan
@@ -406,10 +421,7 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
     struct Context *ctx = data;
 
     int luma = compute_frame_luma_pct(ctx);
-
-    char lux_buf[50];
-    pread(ctx->light_sensor_raw_fd, lux_buf, 50, 0);
-    long lux = strtol(lux_buf, NULL, 10);
+    long lux = pread_long(ctx->light_sensor_raw_fd);
 
     printf("luma=%d%% lux=%ld\n", luma, lux);
 
@@ -559,13 +571,45 @@ static int main_loop(struct Context *ctx) {
  * Initialize Wayland client and Vulkan API
  */
 static int init(struct Context *ctx, int argc, char *argv[]) {
-    char *light_sensor_raw_path = argv[1];
-    if (light_sensor_raw_path == NULL) {
-        light_sensor_raw_path = "/sys/bus/iio/devices/iio:device0/in_illuminance_raw";
+    char *backlight_raw_name = "intel_backlight";
+    char *light_sensor_raw_path = "/sys/bus/iio/devices/iio:device0/in_illuminance_raw";
+
+    char c;
+    while ((c = getopt (argc, argv, "b:l:")) != -1) {
+        switch (c) {
+            case 'b':
+                backlight_raw_name = optarg;
+                break;
+            case 'l':
+                light_sensor_raw_path = optarg;
+                break;
+            default:
+                fprintf(stderr, "ERROR: Unknown option `-%c'\n", optopt);
+                return EXIT_FAILURE;
+        }
     }
+
+    char buf[256];
+
+    sprintf(buf, "/sys/class/backlight/%s/max_brightness", backlight_raw_name);
+    int fd = open(buf, 0);
+    if (fd == -1) {
+        fprintf(stderr, "ERROR: Failed to open max_brightness file: %s\n", buf);
+        return EXIT_FAILURE;
+    }
+    ctx->backlight_max_value = pread_long(fd);
+    close(fd);
+
+    sprintf(buf, "/sys/class/backlight/%s/brightness", backlight_raw_name);
+    ctx->backlight_raw_fd = open(buf, 0);
+    if (ctx->backlight_raw_fd == -1) {
+        fprintf(stderr, "ERROR: Failed to open brightness device file: %s\n", light_sensor_raw_path);
+        return EXIT_FAILURE;
+    }
+
     ctx->light_sensor_raw_fd = open(light_sensor_raw_path, 0);
     if (ctx->light_sensor_raw_fd == -1) {
-        fprintf(stderr, "ERROR: Failed to open ambient light sensor file: %s\n", light_sensor_raw_path);
+        fprintf(stderr, "ERROR: Failed to open ambient light sensor device file: %s\n", light_sensor_raw_path);
         return EXIT_FAILURE;
     }
 
@@ -759,6 +803,7 @@ static void deinit(struct Context *ctx) {
         free(ctx->vulkan);
     }
 
+    close(ctx->backlight_raw_fd);
     close(ctx->light_sensor_raw_fd);
 }
 
