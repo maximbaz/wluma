@@ -112,14 +112,14 @@ static void init_frame_vulkan(struct Context *ctx) {
 
     ctx->vulkan_frame = malloc(sizeof(struct VulkanFrame));
 
-    ctx->vulkan_frame->mip_levels = 1 + floor(log2(fmax(ctx->frame->width, ctx->frame->height)));
+    ctx->vulkan_frame->mip_levels = floor(log2(fmax(ctx->frame->width, ctx->frame->height)));
 
     VkImageCreateInfo imageInfo = {
         .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType     = VK_IMAGE_TYPE_2D,
         .format        = VK_FORMAT_B8G8R8A8_UNORM,
-        .extent.width  = ctx->frame->width,
-        .extent.height = ctx->frame->height,
+        .extent.width  = ctx->frame->width / 2,
+        .extent.height = ctx->frame->height / 2,
         .extent.depth  = 1,
         .mipLevels     = ctx->vulkan_frame->mip_levels,
         .arrayLayers   = 1,
@@ -283,7 +283,7 @@ static int compute_frame_luma_pct(struct Context *ctx) {
         .srcSubresource.baseArrayLayer = 0,
         .srcSubresource.layerCount     = 1,
         .dstOffsets[0]                 = { 0, 0, 0 },
-        .dstOffsets[1]                 = { ctx->frame->width, ctx->frame->height, 1 },
+        .dstOffsets[1]                 = { ctx->frame->width / 2, ctx->frame->height / 2, 1 },
         .dstSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
         .dstSubresource.mipLevel       = 0,
         .dstSubresource.baseArrayLayer = 0,
@@ -297,8 +297,8 @@ static int compute_frame_luma_pct(struct Context *ctx) {
         VK_FILTER_LINEAR);
 
     imageBarrier.subresourceRange.levelCount = 1;
-    uint32_t mipWidth  = ctx->frame->width;
-    uint32_t mipHeight = ctx->frame->height;
+    uint32_t mipWidth  = ctx->frame->width / 2;
+    uint32_t mipHeight = ctx->frame->height / 2;
 
     for (uint32_t i = 1; i < ctx->vulkan_frame->mip_levels; i++) {
         imageBarrier.subresourceRange.baseMipLevel = i - 1;
@@ -382,7 +382,7 @@ static int compute_frame_luma_pct(struct Context *ctx) {
     }
 
     unsigned char r = rgba[0], g = rgba[1], b = rgba[2];
-    result = sqrt(0.241 * r * r + 0.691 * g * g + 0.068 * b * b) / 255.0 * 100.0;
+    result = sqrt(0.241 * (double)(r * r) + 0.691 * (double)(g * g) + 0.068 * (double)(b * b)) / 255.0 * 100.0;
 
     vkUnmapMemory(ctx->vulkan->device, ctx->vulkan->buffer_memory);
 
