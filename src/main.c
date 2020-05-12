@@ -55,7 +55,7 @@ struct WaylandOutput {
 
 struct Context {
     struct wl_display *display;
-    struct wl_list outputs;
+    struct wl_list *outputs;
     struct zwlr_export_dmabuf_manager_v1 *dmabuf_manager;
 
     // Target
@@ -73,6 +73,9 @@ struct Context {
 
     // Vulkan structs for processing frames, might be reused
     struct VulkanFrame *vulkan_frame;
+
+    // Ambient light sensor raw data
+    int light_sensor_raw_fd;
 
     // Errors
     bool quit;
@@ -403,7 +406,12 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
     struct Context *ctx = data;
 
     int luma = compute_frame_luma_pct(ctx);
-    printf("luma: %d%%\n", luma);
+
+    char lux_buf[50];
+    pread(ctx->light_sensor_raw_fd, lux_buf, 50, 0);
+    long lux = strtol(lux_buf, NULL, 10);
+
+    printf("luma=%d%% lux=%ld\n", luma, lux);
 
     frame_free(ctx);
 
@@ -488,7 +496,7 @@ static void remove_output(struct WaylandOutput *out) {
 
 static struct WaylandOutput* find_output(struct Context *ctx, struct wl_output *out, uint32_t id) {
     struct WaylandOutput *output, *tmp;
-    wl_list_for_each_safe(output, tmp, &ctx->outputs, link) {
+    wl_list_for_each_safe(output, tmp, ctx->outputs, link) {
         if ((output->output == out) || (output->id == id)) {
             return output;
         }
@@ -509,7 +517,7 @@ static void registry_handle_add(void *data, struct wl_registry *reg, uint32_t id
         output->id = id;
         output->output = wl_registry_bind(reg, id, &wl_output_interface, ver);
 
-        wl_list_insert(&ctx->outputs, &output->link);
+        wl_list_insert(ctx->outputs, &output->link);
     }
 
     if (strcmp(interface, zwlr_export_dmabuf_manager_v1_interface.name) == 0) {
@@ -550,14 +558,25 @@ static int main_loop(struct Context *ctx) {
 /******************************************************************************
  * Initialize Wayland client and Vulkan API
  */
-static int init(struct Context *ctx) {
+static int init(struct Context *ctx, int argc, char *argv[]) {
+    char *light_sensor_raw_path = argv[1];
+    if (light_sensor_raw_path == NULL) {
+        light_sensor_raw_path = "/sys/bus/iio/devices/iio:device0/in_illuminance_raw";
+    }
+    ctx->light_sensor_raw_fd = open(light_sensor_raw_path, 0);
+    if (ctx->light_sensor_raw_fd == -1) {
+        fprintf(stderr, "ERROR: Failed to open ambient light sensor file: %s\n", light_sensor_raw_path);
+        return EXIT_FAILURE;
+    }
+
     ctx->display = wl_display_connect(NULL);
     if (!ctx->display) {
         fprintf(stderr, "ERROR: Failed to connect to display!\n");
         return EXIT_FAILURE;
     }
 
-    wl_list_init(&ctx->outputs);
+    ctx->outputs = malloc(sizeof(struct wl_list));
+    wl_list_init(ctx->outputs);
 
     struct wl_registry *registry = wl_display_get_registry(ctx->display);
 
@@ -570,7 +589,7 @@ static int init(struct Context *ctx) {
     wl_display_roundtrip(ctx->display);
     wl_display_dispatch(ctx->display);
 
-    if (wl_list_empty(&ctx->outputs)) {
+    if (wl_list_empty(ctx->outputs)) {
         fprintf(stderr, "ERROR: Failed to retrieve any output!\n");
         return EXIT_FAILURE;
     }
@@ -710,9 +729,13 @@ static int init(struct Context *ctx) {
 }
 
 static void deinit(struct Context *ctx) {
-    struct WaylandOutput *output, *tmp_o;
-    wl_list_for_each_safe(output, tmp_o, &ctx->outputs, link) {
-        remove_output(output);
+    if (ctx->outputs) {
+        struct WaylandOutput *output, *tmp_o;
+        wl_list_for_each_safe(output, tmp_o, ctx->outputs, link) {
+            remove_output(output);
+        }
+
+        free(ctx->outputs);
     }
 
     if (ctx->dmabuf_manager) zwlr_export_dmabuf_manager_v1_destroy(ctx->dmabuf_manager);
@@ -735,6 +758,8 @@ static void deinit(struct Context *ctx) {
 
         free(ctx->vulkan);
     }
+
+    close(ctx->light_sensor_raw_fd);
 }
 
 
@@ -742,18 +767,18 @@ static void deinit(struct Context *ctx) {
  * Main
  */
 
-int main() {
+int main(int argc, char *argv[]) {
     int err = EXIT_SUCCESS;
     struct Context ctx = { 0 };
 
-    err = init(&ctx);
+    err = init(&ctx, argc, argv);
     if (err) {
         goto exit;
     }
 
     // TODO handle multiple outputs
     struct WaylandOutput *o, *tmp_o;
-    wl_list_for_each_safe(o, tmp_o, &ctx.outputs, link) {
+    wl_list_for_each_safe(o, tmp_o, ctx.outputs, link) {
         ctx.target_output = o;
     }
 
