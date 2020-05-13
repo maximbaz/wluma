@@ -36,18 +36,12 @@ struct Vulkan {
 
 struct Frame {
     struct zwlr_export_dmabuf_frame_v1* frame;
-    uint32_t format;
     uint32_t width;
     uint32_t height;
     uint32_t num_objects;
-    uint32_t flags;
-    uint64_t format_modifier;
 
-    uint32_t strides[4];
     uint32_t sizes[4];
     int32_t  fds[4];
-    uint32_t offsets[4];
-    uint32_t plane_indices[4];
 };
 
 struct VulkanFrame {
@@ -69,7 +63,6 @@ struct Context {
 
     // Target
     struct WaylandOutput *target_output;
-    bool with_cursor;
 
     // Main frame callback
     struct zwlr_export_dmabuf_frame_v1 *frame_callback;
@@ -178,10 +171,10 @@ static void data_save(struct Context *ctx) {
     }
 }
 
-static int data_load(struct Context *ctx) {
+static bool data_load(struct Context *ctx) {
     FILE *f = fdopen(dup(ctx->data_fd), "r");
     if (f == NULL) {
-        return EXIT_FAILURE;
+        return false;
     }
 
     char line[150];
@@ -191,7 +184,7 @@ static int data_load(struct Context *ctx) {
         for (int i=0; i<3; i++) {
             word = strtok(word == NULL ? line : NULL, " ");
             if (word == NULL) {
-                return EXIT_FAILURE;
+                return false;
             }
             val[i] = strtol(word, NULL, 10);
         }
@@ -199,7 +192,7 @@ static int data_load(struct Context *ctx) {
     }
 
     fclose(f);
-    return EXIT_SUCCESS;
+    return true;
 }
 
 
@@ -525,6 +518,11 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
                         uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
     struct Context *ctx = data;
 
+    if (ctx->quit || ctx->err) {
+	    frame_free(ctx);
+	    return;
+    }
+
     long lux = pread_long(ctx->light_sensor_raw_fd);
     long backlight = pread_long(ctx->backlight_raw_fd);
     int luma = compute_frame_luma_pct(ctx);
@@ -578,19 +576,17 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 
     ctx->backlight_last = backlight;
 
-    if (!ctx->quit && !ctx->err) {
-        // Sleep a bit before asking for the next frame
-        struct timespec ts = {
-            .tv_sec = 0,
-            .tv_nsec = MS_100,
-        };
-        while (nanosleep(&ts, &ts) == -1) {
-            continue;
-        }
-
-        // Ask for the next frame
-        register_frame_listener(ctx);
+    // Sleep a bit before asking for the next frame
+    struct timespec ts = {
+        .tv_sec = 0,
+        .tv_nsec = MS_100,
+    };
+    while (nanosleep(&ts, &ts) == -1) {
+        continue;
     }
+
+    // Ask for the next frame
+    register_frame_listener(ctx);
 }
 
 static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
@@ -603,10 +599,7 @@ static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
     ctx->frame->frame = frame;
     ctx->frame->width = width;
     ctx->frame->height = height;
-    ctx->frame->format = format;
-    ctx->frame->format_modifier = ((uint64_t)mod_high << 32) | mod_low;
     ctx->frame->num_objects = num_objects;
-    ctx->frame->flags = flags;
 
     init_frame_vulkan(ctx);
 }
@@ -618,9 +611,6 @@ static void frame_object(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 
     ctx->frame->fds[index] = fd;
     ctx->frame->sizes[index] = size;
-    ctx->frame->strides[index] = stride;
-    ctx->frame->offsets[index] = offset;
-    ctx->frame->plane_indices[index] = plane_index;
 }
 
 static void frame_cancel(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
@@ -631,7 +621,7 @@ static void frame_cancel(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 
     if (reason == ZWLR_EXPORT_DMABUF_FRAME_V1_CANCEL_REASON_PERMANENT) {
         fprintf(stderr, "ERROR: Permanent failure when capturing frame!\n");
-        ctx->err = true;
+        ctx->err = 1;
     } else {
         register_frame_listener(ctx);
     }
@@ -645,7 +635,7 @@ static const struct zwlr_export_dmabuf_frame_v1_listener frame_listener = {
 };
 
 static void register_frame_listener(struct Context *ctx) {
-    ctx->frame_callback = zwlr_export_dmabuf_manager_v1_capture_output(ctx->dmabuf_manager, ctx->with_cursor, ctx->target_output->output);
+    ctx->frame_callback = zwlr_export_dmabuf_manager_v1_capture_output(ctx->dmabuf_manager, false, ctx->target_output->output);
     zwlr_export_dmabuf_frame_v1_add_listener(ctx->frame_callback, &frame_listener, ctx);
 }
 
@@ -700,8 +690,6 @@ static void on_quit_signal(int signal) {
 }
 
 static int main_loop(struct Context *ctx) {
-    int err;
-
     quit_ctx = ctx;
 
     if (signal(SIGINT, on_quit_signal) == SIG_ERR) {
@@ -771,7 +759,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    if (data_load(ctx) == EXIT_FAILURE) {
+    if (!data_load(ctx)) {
         fprintf(stderr, "WARN: Failed to read data file, starting from scratch!\n");
     }
 
