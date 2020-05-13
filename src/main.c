@@ -78,6 +78,7 @@ struct Context {
 
     // Ambient light sensor raw data
     int light_sensor_raw_fd;
+    long lux_raw_max_seen;
 
     // Backlight control
     int backlight_raw_fd;
@@ -160,12 +161,16 @@ static struct DataPoint* data_remove(struct Context *ctx, struct DataPoint *poin
 }
 
 static void data_save(struct Context *ctx) {
-    char buf[150];
-    struct DataPoint *elem = ctx->data;
     ftruncate(ctx->data_fd, 0);
     lseek(ctx->data_fd, 0, SEEK_SET);
+
+    char buf[150];
+    int len = sprintf(buf, "%ld\n", ctx->lux_raw_max_seen);
+    write(ctx->data_fd, buf, len);
+
+    struct DataPoint *elem = ctx->data;
     while (elem) {
-        int len = sprintf(buf, "%d %ld %d\n", elem->luma, elem->lux, elem->backlight);
+        len = sprintf(buf, "%d %ld %d\n", elem->luma, elem->lux, elem->backlight);
         write(ctx->data_fd, buf, len);
         elem = elem->next;
     }
@@ -178,6 +183,11 @@ static bool data_load(struct Context *ctx) {
     }
 
     char line[150];
+
+    if (fgets(line, 150, f)) {
+        ctx->lux_raw_max_seen = strtol(line, NULL, 10);
+    }
+
     while (fgets(line, 150, f)) {
         long val[3];
         char *word = NULL;
@@ -193,6 +203,27 @@ static bool data_load(struct Context *ctx) {
 
     fclose(f);
     return true;
+}
+
+
+/******************************************************************************
+ * Devices
+ */
+
+static int read_lux_pct(struct Context *ctx) {
+    long lux_raw = pread_long(ctx->light_sensor_raw_fd);
+
+    // Assume last seen value is the maximum possible
+    if (lux_raw > ctx->lux_raw_max_seen) {
+        ctx->lux_raw_max_seen = lux_raw;
+        data_save(ctx);
+    }
+
+    return ctx->lux_raw_max_seen == 0 ? 0 : lux_raw * 100 / ctx->lux_raw_max_seen;
+}
+
+static int read_backlight_pct(struct Context *ctx) {
+    return pread_long(ctx->backlight_raw_fd) * 100 / ctx->backlight_max;
 }
 
 
@@ -523,8 +554,8 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         return;
     }
 
-    long lux = pread_long(ctx->light_sensor_raw_fd);
-    int backlight = pread_long(ctx->backlight_raw_fd) * 100 / ctx->backlight_max;
+    int lux = read_lux_pct(ctx);
+    int backlight = read_backlight_pct(ctx);
     int luma = compute_frame_luma_pct(ctx);
     frame_free(ctx);
 
@@ -545,7 +576,7 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
             }
 
             if (backlight != nearest->backlight) {
-                printf("luma=%d%% lux=%ld backlight=%d - SETTING backlight to %d\n", luma, lux, backlight, nearest->backlight);
+                printf("luma=%d lux=%d backlight=%d - SETTING backlight to %d\n", luma, lux, backlight, nearest->backlight);
                 for (
                     int step = backlight < nearest->backlight ? 1 : -1;
                     (step > 0 && backlight <= nearest->backlight) || (step < 0 && backlight >= nearest->backlight);
@@ -559,10 +590,10 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
                     }
                 }
             } else {
-                printf("luma=%d%% lux=%ld backlight=%d - ALREADY GOOD\n", luma, lux, backlight);
+                printf("luma=%d lux=%d backlight=%d - ALREADY GOOD\n", luma, lux, backlight);
             }
         } else {
-            printf("luma=%d%% lux=%ld backlight=%d - NO DATA, leaving backlight as it is\n", luma, lux, backlight);
+            printf("luma=%d lux=%d backlight=%d - NO DATA, leaving backlight as it is\n", luma, lux, backlight);
         }
     } else {
         struct DataPoint *new_point = data_add(ctx, luma, lux, backlight);
@@ -583,7 +614,7 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 
         data_save(ctx);
 
-        printf("luma=%d%% lux=%ld backlight=%d - LEARNED\n", luma, lux, backlight);
+        printf("luma=%d lux=%d backlight=%d - LEARNED\n", luma, lux, backlight);
     }
 
     ctx->backlight_last = backlight;
@@ -754,7 +785,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
         fprintf(stderr, "ERROR: Failed to open brightness device file: %s\n", buf);
         return EXIT_FAILURE;
     }
-    ctx->backlight_last = pread_long(ctx->backlight_raw_fd) * 100 / ctx->backlight_max;
+    ctx->backlight_last = read_backlight_pct(ctx);
 
     ctx->light_sensor_raw_fd = open(light_sensor_raw_path, O_RDONLY);
     if (ctx->light_sensor_raw_fd == -1) {
