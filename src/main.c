@@ -20,7 +20,7 @@ struct DataPoint {
     struct DataPoint *prev;
     int luma;
     long lux;
-    long backlight;
+    int backlight;
 };
 
 struct Vulkan {
@@ -82,7 +82,7 @@ struct Context {
     // Backlight control
     int backlight_raw_fd;
     long backlight_max;
-    long backlight_last;
+    int backlight_last;
 
     // Data points to determine the best backlight value
     int data_fd;
@@ -118,7 +118,7 @@ static void pwrite_long(int fd, long val) {
  * Data points
  */
 
-static struct DataPoint* data_add(struct Context *ctx, int luma, long lux, long backlight) {
+static struct DataPoint* data_add(struct Context *ctx, int luma, long lux, int backlight) {
     struct DataPoint *point = malloc(sizeof(struct DataPoint));
     point->lux = lux;
     point->luma = luma;
@@ -165,7 +165,7 @@ static void data_save(struct Context *ctx) {
     ftruncate(ctx->data_fd, 0);
     lseek(ctx->data_fd, 0, SEEK_SET);
     while (elem) {
-        int len = sprintf(buf, "%d %ld %ld\n", elem->luma, elem->lux, elem->backlight);
+        int len = sprintf(buf, "%d %ld %d\n", elem->luma, elem->lux, elem->backlight);
         write(ctx->data_fd, buf, len);
         elem = elem->next;
     }
@@ -519,14 +519,16 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
     struct Context *ctx = data;
 
     if (ctx->quit || ctx->err) {
-	    frame_free(ctx);
-	    return;
+        frame_free(ctx);
+        return;
     }
 
     long lux = pread_long(ctx->light_sensor_raw_fd);
-    long backlight = pread_long(ctx->backlight_raw_fd);
+    int backlight = pread_long(ctx->backlight_raw_fd) * 100 / ctx->backlight_max;
     int luma = compute_frame_luma_pct(ctx);
     frame_free(ctx);
+
+    struct timespec sleep = { 0 };
 
     if (ctx->backlight_last == backlight) {
         if (ctx->data) {
@@ -543,14 +545,24 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
             }
 
             if (backlight != nearest->backlight) {
-                printf("luma=%d%% lux=%ld backlight=%ld - SETTING backlight to %ld\n", luma, lux, backlight, nearest->backlight);
-                backlight = nearest->backlight;
-                pwrite_long(ctx->backlight_raw_fd, backlight);
+                printf("luma=%d%% lux=%ld backlight=%d - SETTING backlight to %d\n", luma, lux, backlight, nearest->backlight);
+                for (
+                    int step = backlight < nearest->backlight ? 1 : -1;
+                    (step > 0 && backlight <= nearest->backlight) || (step < 0 && backlight >= nearest->backlight);
+                    backlight += step
+                ) {
+                    pwrite_long(ctx->backlight_raw_fd, backlight * ctx->backlight_max / 100);
+
+                    sleep.tv_nsec = 10 * 1000000L;
+                    while (nanosleep(&sleep, &sleep) == -1) {
+                        continue;
+                    }
+                }
             } else {
-                printf("luma=%d%% lux=%ld backlight=%ld - ALREADY GOOD\n", luma, lux, backlight);
+                printf("luma=%d%% lux=%ld backlight=%d - ALREADY GOOD\n", luma, lux, backlight);
             }
         } else {
-            printf("luma=%d%% lux=%ld backlight=%ld - NO DATA, leaving backlight as it is\n", luma, lux, backlight);
+            printf("luma=%d%% lux=%ld backlight=%d - NO DATA, leaving backlight as it is\n", luma, lux, backlight);
         }
     } else {
         struct DataPoint *new_point = data_add(ctx, luma, lux, backlight);
@@ -571,17 +583,14 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 
         data_save(ctx);
 
-        printf("luma=%d%% lux=%ld backlight=%ld - LEARNED\n", luma, lux, backlight);
+        printf("luma=%d%% lux=%ld backlight=%d - LEARNED\n", luma, lux, backlight);
     }
 
     ctx->backlight_last = backlight;
 
     // Sleep a bit before asking for the next frame
-    struct timespec ts = {
-        .tv_sec = 0,
-        .tv_nsec = MS_100,
-    };
-    while (nanosleep(&ts, &ts) == -1) {
+    sleep.tv_nsec = MS_100;
+    while (nanosleep(&sleep, &sleep) == -1) {
         continue;
     }
 
@@ -745,7 +754,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
         fprintf(stderr, "ERROR: Failed to open brightness device file: %s\n", buf);
         return EXIT_FAILURE;
     }
-    ctx->backlight_last = pread_long(ctx->backlight_raw_fd);
+    ctx->backlight_last = pread_long(ctx->backlight_raw_fd) * 100 / ctx->backlight_max;
 
     ctx->light_sensor_raw_fd = open(light_sensor_raw_path, O_RDONLY);
     if (ctx->light_sensor_raw_fd == -1) {
