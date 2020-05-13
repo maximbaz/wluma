@@ -15,6 +15,14 @@
 
 #define MS_100 (100 * 1000000L)
 
+struct DataPoint {
+    struct DataPoint *next;
+    struct DataPoint *prev;
+    int luma;
+    long lux;
+    long backlight;
+};
+
 struct Vulkan {
     VkInstance instance;
     VkDevice device;
@@ -80,7 +88,12 @@ struct Context {
 
     // Backlight control
     int backlight_raw_fd;
-    uint32_t backlight_max_value;
+    long backlight_max;
+    long backlight_last;
+
+    // Data points to determine the best backlight value
+    int data_fd;
+    struct DataPoint *data;
 
     // Errors
     bool quit;
@@ -95,10 +108,100 @@ struct Context {
 static long pread_long(int fd) {
     char buf[50];
     if (pread(fd, buf, 50, 0) < 0) {
-	    return -1;
+        return -1;
     }
     return strtol(buf, NULL, 10);
 }
+
+static void pwrite_long(int fd, long val) {
+    char buf[50];
+    int len = sprintf(buf, "%ld", val);
+    ftruncate(fd, 0);
+    pwrite(fd, buf, len, 0);
+}
+
+
+/******************************************************************************
+ * Data points
+ */
+
+static struct DataPoint* data_add(struct Context *ctx, int luma, long lux, long backlight) {
+    struct DataPoint *point = malloc(sizeof(struct DataPoint));
+    point->lux = lux;
+    point->luma = luma;
+    point->backlight = backlight;
+
+    if (ctx->data) {
+        struct DataPoint *next = ctx->data->next;
+        ctx->data->next = point;
+        point->next = next;
+        point->prev = ctx->data;
+        if (next) {
+            next->prev = point;
+        }
+    } else {
+        ctx->data = point;
+        point->next = NULL;
+        point->prev = NULL;
+    }
+
+    return point;
+}
+
+static struct DataPoint* data_remove(struct Context *ctx, struct DataPoint *point) {
+    if (ctx->data == point) {
+        ctx->data = ctx->data->next;
+    }
+
+    struct DataPoint *next = point->next;
+    struct DataPoint *prev = point->prev;
+    if (next) {
+        next->prev = prev;
+    }
+    if (prev) {
+        prev->next = next;
+    }
+
+    free(point);
+    return next;
+}
+
+static void data_save(struct Context *ctx) {
+    char buf[150];
+    struct DataPoint *elem = ctx->data;
+    ftruncate(ctx->data_fd, 0);
+    lseek(ctx->data_fd, 0, SEEK_SET);
+    while (elem) {
+        int len = sprintf(buf, "%d %ld %ld\n", elem->luma, elem->lux, elem->backlight);
+        write(ctx->data_fd, buf, len);
+        elem = elem->next;
+    }
+}
+
+static int data_load(struct Context *ctx) {
+    FILE *f = fdopen(dup(ctx->data_fd), "r");
+    if (f == NULL) {
+        return EXIT_FAILURE;
+    }
+
+    char line[150];
+    while (fgets(line, 150, f)) {
+        long val[3];
+        char *word = NULL;
+        for (int i=0; i<3; i++) {
+            word = strtok(word == NULL ? line : NULL, " ");
+            if (word == NULL) {
+                return EXIT_FAILURE;
+            }
+            val[i] = strtol(word, NULL, 10);
+        }
+        data_add(ctx, val[0], val[1], val[2]);
+    }
+
+    fclose(f);
+    return EXIT_SUCCESS;
+}
+
 
 /******************************************************************************
  * Vulkan
@@ -422,12 +525,58 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
                         uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
     struct Context *ctx = data;
 
-    int luma = compute_frame_luma_pct(ctx);
     long lux = pread_long(ctx->light_sensor_raw_fd);
-
-    printf("luma=%d%% lux=%ld\n", luma, lux);
-
+    long backlight = pread_long(ctx->backlight_raw_fd);
+    int luma = compute_frame_luma_pct(ctx);
     frame_free(ctx);
+
+    if (ctx->backlight_last == backlight) {
+        if (ctx->data) {
+            struct DataPoint *nearest = ctx->data, *elem = ctx->data;
+            double nearest_dist = sqrt(pow(lux - nearest->lux, 2) + pow(luma - nearest->luma, 2));
+
+            while (elem) {
+                double dist = sqrt(pow(lux - elem->lux, 2) + pow(luma - elem->luma, 2));
+                if (dist < nearest_dist) {
+                    nearest_dist = dist;
+                    nearest = elem;
+                }
+                elem = elem->next;
+            }
+
+            if (backlight != nearest->backlight) {
+                printf("luma=%d%% lux=%ld backlight=%ld - SETTING backlight to %ld\n", luma, lux, backlight, nearest->backlight);
+                backlight = nearest->backlight;
+                pwrite_long(ctx->backlight_raw_fd, backlight);
+            } else {
+                printf("luma=%d%% lux=%ld backlight=%ld - ALREADY GOOD\n", luma, lux, backlight);
+            }
+        } else {
+            printf("luma=%d%% lux=%ld backlight=%ld - NO DATA, leaving backlight as it is\n", luma, lux, backlight);
+        }
+    } else {
+        struct DataPoint *new_point = data_add(ctx, luma, lux, backlight);
+        struct DataPoint *elem = ctx->data;
+        while (elem) {
+            if (
+                (elem->lux == lux && elem->luma == luma && elem != new_point) ||
+                (elem->lux <  lux && elem->luma == luma && elem->backlight > backlight) ||
+                (elem->lux == lux && elem->luma <  luma && elem->backlight < backlight) ||
+                (elem->lux >  lux && elem->luma == luma && elem->backlight < backlight) ||
+                (elem->lux == lux && elem->luma >  luma && elem->backlight > backlight)
+            ) {
+                elem = data_remove(ctx, elem);
+            } else {
+                elem = elem->next;
+            }
+        }
+
+        data_save(ctx);
+
+        printf("luma=%d%% lux=%ld backlight=%ld - LEARNED\n", luma, lux, backlight);
+    }
+
+    ctx->backlight_last = backlight;
 
     if (!ctx->quit && !ctx->err) {
         // Sleep a bit before asking for the next frame
@@ -594,25 +743,36 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
     char buf[256];
 
     sprintf(buf, "/sys/class/backlight/%s/max_brightness", backlight_raw_name);
-    int fd = open(buf, 0);
+    int fd = open(buf, O_RDONLY);
     if (fd == -1) {
         fprintf(stderr, "ERROR: Failed to open max_brightness file: %s\n", buf);
         return EXIT_FAILURE;
     }
-    ctx->backlight_max_value = pread_long(fd);
+    ctx->backlight_max = pread_long(fd);
     close(fd);
 
     sprintf(buf, "/sys/class/backlight/%s/brightness", backlight_raw_name);
-    ctx->backlight_raw_fd = open(buf, 0);
+    ctx->backlight_raw_fd = open(buf, O_RDWR);
     if (ctx->backlight_raw_fd == -1) {
-        fprintf(stderr, "ERROR: Failed to open brightness device file: %s\n", light_sensor_raw_path);
+        fprintf(stderr, "ERROR: Failed to open brightness device file: %s\n", buf);
         return EXIT_FAILURE;
     }
+    ctx->backlight_last = pread_long(ctx->backlight_raw_fd);
 
-    ctx->light_sensor_raw_fd = open(light_sensor_raw_path, 0);
+    ctx->light_sensor_raw_fd = open(light_sensor_raw_path, O_RDONLY);
     if (ctx->light_sensor_raw_fd == -1) {
         fprintf(stderr, "ERROR: Failed to open ambient light sensor device file: %s\n", light_sensor_raw_path);
         return EXIT_FAILURE;
+    }
+
+    ctx->data_fd = open("data.txt", O_RDWR | O_CREAT | O_DSYNC, 0644);
+    if (ctx->data_fd == -1) {
+        fprintf(stderr, "ERROR: Failed to open data file!\n");
+        return EXIT_FAILURE;
+    }
+
+    if (data_load(ctx) == EXIT_FAILURE) {
+        fprintf(stderr, "WARN: Failed to read data file, starting from scratch!\n");
     }
 
     ctx->display = wl_display_connect(NULL);
@@ -775,6 +935,11 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
 }
 
 static void deinit(struct Context *ctx) {
+    struct DataPoint *elem = ctx->data;
+    while (elem) {
+        elem = data_remove(ctx, elem);
+    }
+
     if (ctx->outputs) {
         struct WaylandOutput *output, *tmp_o;
         wl_list_for_each_safe(output, tmp_o, ctx->outputs, link) {
@@ -805,6 +970,7 @@ static void deinit(struct Context *ctx) {
         free(ctx->vulkan);
     }
 
+    close(ctx->data_fd);
     close(ctx->backlight_raw_fd);
     close(ctx->light_sensor_raw_fd);
 }
