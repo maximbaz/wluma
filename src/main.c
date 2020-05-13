@@ -18,7 +18,7 @@
 struct DataPoint {
     struct DataPoint *next;
     struct DataPoint *prev;
-    int lux;
+    long lux;
     int luma;
     int backlight;
 };
@@ -78,7 +78,7 @@ struct Context {
 
     // Ambient light sensor raw data
     int light_sensor_raw_fd;
-    long lux_raw_max_seen;
+    long lux_max_seen;
 
     // Backlight control
     int backlight_raw_fd;
@@ -119,7 +119,7 @@ static void pwrite_long(int fd, long val) {
  * Data points
  */
 
-static struct DataPoint* data_add(struct Context *ctx, int lux, int luma, int backlight) {
+static struct DataPoint* data_add(struct Context *ctx, long lux, int luma, int backlight) {
     struct DataPoint *point = malloc(sizeof(struct DataPoint));
     point->lux = lux;
     point->luma = luma;
@@ -165,12 +165,12 @@ static void data_save(struct Context *ctx) {
     lseek(ctx->data_fd, 0, SEEK_SET);
 
     char buf[150];
-    int len = sprintf(buf, "%ld\n", ctx->lux_raw_max_seen);
+    int len = sprintf(buf, "%ld\n", ctx->lux_max_seen);
     write(ctx->data_fd, buf, len);
 
     struct DataPoint *elem = ctx->data;
     while (elem) {
-        len = sprintf(buf, "%d %d %d\n", elem->lux, elem->luma, elem->backlight);
+        len = sprintf(buf, "%ld %d %d\n", elem->lux, elem->luma, elem->backlight);
         write(ctx->data_fd, buf, len);
         elem = elem->next;
     }
@@ -185,7 +185,7 @@ static bool data_load(struct Context *ctx) {
     char line[150];
 
     if (fgets(line, 150, f)) {
-        ctx->lux_raw_max_seen = strtol(line, NULL, 10);
+        ctx->lux_max_seen = strtol(line, NULL, 10);
     }
 
     while (fgets(line, 150, f)) {
@@ -210,16 +210,16 @@ static bool data_load(struct Context *ctx) {
  * Devices
  */
 
-static int read_lux_pct(struct Context *ctx) {
-    long lux_raw = pread_long(ctx->light_sensor_raw_fd);
+static int read_lux(struct Context *ctx) {
+    long lux = pread_long(ctx->light_sensor_raw_fd);
 
     // Assume last seen value is the maximum possible
-    if (lux_raw > ctx->lux_raw_max_seen) {
-        ctx->lux_raw_max_seen = lux_raw;
+    if (lux > ctx->lux_max_seen) {
+        ctx->lux_max_seen = lux;
         data_save(ctx);
     }
 
-    return ctx->lux_raw_max_seen == 0 ? 0 : lux_raw * 100 / ctx->lux_raw_max_seen;
+    return lux;
 }
 
 static int read_backlight_pct(struct Context *ctx) {
@@ -530,14 +530,14 @@ exit:
  * Backlight control
  */
 
-static void update_backlight(struct Context *ctx, int lux, int luma, int backlight) {
+static void update_backlight(struct Context *ctx, long lux, int luma, int backlight) {
     if (ctx->backlight_last == backlight) {
         if (ctx->data) {
             struct DataPoint *nearest = ctx->data, *elem = ctx->data;
-            double nearest_dist = sqrt(pow(lux - nearest->lux, 2) + pow(luma - nearest->luma, 2));
+            double nearest_dist = sqrt(pow((lux - nearest->lux) * 100 / ctx->lux_max_seen, 2) + pow(luma - nearest->luma, 2));
 
             while (elem) {
-                double dist = sqrt(pow(lux - elem->lux, 2) + pow(luma - elem->luma, 2));
+                double dist = sqrt(pow((lux - elem->lux) * 100 / ctx->lux_max_seen, 2) + pow(luma - elem->luma, 2));
                 if (dist < nearest_dist) {
                     nearest_dist = dist;
                     nearest = elem;
@@ -546,7 +546,7 @@ static void update_backlight(struct Context *ctx, int lux, int luma, int backlig
             }
 
             if (backlight != nearest->backlight) {
-                printf("lux=%d luma=%d backlight=%d - SETTING backlight to %d\n", lux, luma, backlight, nearest->backlight);
+                printf("lux=%ld luma=%d backlight=%d - SETTING backlight to %d\n", lux, luma, backlight, nearest->backlight);
                 struct timespec sleep = { 0 };
                 for (
                     int step = backlight < nearest->backlight ? 1 : -1;
@@ -561,10 +561,10 @@ static void update_backlight(struct Context *ctx, int lux, int luma, int backlig
                     }
                 }
             } else {
-                printf("lux=%d luma=%d backlight=%d - ALREADY GOOD\n", lux, luma, backlight);
+                printf("lux=%ld luma=%d backlight=%d - ALREADY GOOD\n", lux, luma, backlight);
             }
         } else {
-            printf("lux=%d luma=%d backlight=%d - NO DATA, leaving backlight as it is\n", lux, luma, backlight);
+            printf("lux=%ld luma=%d backlight=%d - NO DATA, leaving backlight as it is\n", lux, luma, backlight);
         }
     } else {
         struct DataPoint *new_point = data_add(ctx, lux, luma, backlight);
@@ -585,7 +585,7 @@ static void update_backlight(struct Context *ctx, int lux, int luma, int backlig
 
         data_save(ctx);
 
-        printf("lux=%d luma=%d backlight=%d - LEARNED\n", lux, luma, backlight);
+        printf("lux=%ld luma=%d backlight=%d - LEARNED\n", lux, luma, backlight);
     }
 
     ctx->backlight_last = backlight;
@@ -625,7 +625,7 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
     int luma = compute_frame_luma_pct(ctx);
     frame_free(ctx);
 
-    int lux = read_lux_pct(ctx);
+    long lux = read_lux(ctx);
     int backlight = read_backlight_pct(ctx);
 
     // Set the most appropriate backlight value
