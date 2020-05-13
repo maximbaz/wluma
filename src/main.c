@@ -560,6 +560,7 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
                         continue;
                     }
                 }
+                backlight = nearest->backlight;
             } else {
                 printf("lux=%ld luma=%d backlight=%d - ALREADY GOOD\n", lux, luma, backlight);
             }
@@ -616,17 +617,17 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
                         uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
     struct Context *ctx = data;
 
-    if (ctx->quit || ctx->err) {
-        frame_free(ctx);
-        return;
-    }
-
     // Compute all necessary values
     int luma = compute_frame_luma_pct(ctx);
     frame_free(ctx);
 
     long lux = read_lux(ctx);
     int backlight = read_backlight_pct(ctx);
+
+    // Don't update backlight if there was an error or exit signal
+    if (ctx->quit || ctx->err) {
+        return;
+    }
 
     // Set the most appropriate backlight value
     update_backlight(ctx, lux, luma, backlight);
