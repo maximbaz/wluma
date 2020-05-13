@@ -18,8 +18,8 @@
 struct DataPoint {
     struct DataPoint *next;
     struct DataPoint *prev;
+    int lux;
     int luma;
-    long lux;
     int backlight;
 };
 
@@ -119,7 +119,7 @@ static void pwrite_long(int fd, long val) {
  * Data points
  */
 
-static struct DataPoint* data_add(struct Context *ctx, int luma, long lux, int backlight) {
+static struct DataPoint* data_add(struct Context *ctx, int lux, int luma, int backlight) {
     struct DataPoint *point = malloc(sizeof(struct DataPoint));
     point->lux = lux;
     point->luma = luma;
@@ -170,7 +170,7 @@ static void data_save(struct Context *ctx) {
 
     struct DataPoint *elem = ctx->data;
     while (elem) {
-        len = sprintf(buf, "%d %ld %d\n", elem->luma, elem->lux, elem->backlight);
+        len = sprintf(buf, "%d %d %d\n", elem->lux, elem->luma, elem->backlight);
         write(ctx->data_fd, buf, len);
         elem = elem->next;
     }
@@ -525,6 +525,73 @@ exit:
     return result;
 }
 
+
+/******************************************************************************
+ * Backlight control
+ */
+
+static void update_backlight(struct Context *ctx, int lux, int luma, int backlight) {
+    if (ctx->backlight_last == backlight) {
+        if (ctx->data) {
+            struct DataPoint *nearest = ctx->data, *elem = ctx->data;
+            double nearest_dist = sqrt(pow(lux - nearest->lux, 2) + pow(luma - nearest->luma, 2));
+
+            while (elem) {
+                double dist = sqrt(pow(lux - elem->lux, 2) + pow(luma - elem->luma, 2));
+                if (dist < nearest_dist) {
+                    nearest_dist = dist;
+                    nearest = elem;
+                }
+                elem = elem->next;
+            }
+
+            if (backlight != nearest->backlight) {
+                printf("lux=%d luma=%d backlight=%d - SETTING backlight to %d\n", lux, luma, backlight, nearest->backlight);
+                struct timespec sleep = { 0 };
+                for (
+                    int step = backlight < nearest->backlight ? 1 : -1;
+                    (step > 0 && backlight <= nearest->backlight) || (step < 0 && backlight >= nearest->backlight);
+                    backlight += step
+                ) {
+                    pwrite_long(ctx->backlight_raw_fd, backlight * ctx->backlight_max / 100);
+
+                    sleep.tv_nsec = 10 * 1000000L;
+                    while (nanosleep(&sleep, &sleep) == -1) {
+                        continue;
+                    }
+                }
+            } else {
+                printf("lux=%d luma=%d backlight=%d - ALREADY GOOD\n", lux, luma, backlight);
+            }
+        } else {
+            printf("lux=%d luma=%d backlight=%d - NO DATA, leaving backlight as it is\n", lux, luma, backlight);
+        }
+    } else {
+        struct DataPoint *new_point = data_add(ctx, lux, luma, backlight);
+        struct DataPoint *elem = ctx->data;
+        while (elem) {
+            if (
+                (elem->lux == lux && elem->luma == luma && elem != new_point) ||
+                (elem->lux <  lux && elem->luma == luma && elem->backlight > backlight) ||
+                (elem->lux == lux && elem->luma <  luma && elem->backlight < backlight) ||
+                (elem->lux >  lux && elem->luma == luma && elem->backlight < backlight) ||
+                (elem->lux == lux && elem->luma >  luma && elem->backlight > backlight)
+            ) {
+                elem = data_remove(ctx, elem);
+            } else {
+                elem = elem->next;
+            }
+        }
+
+        data_save(ctx);
+
+        printf("lux=%d luma=%d backlight=%d - LEARNED\n", lux, luma, backlight);
+    }
+
+    ctx->backlight_last = backlight;
+}
+
+
 /******************************************************************************
  * Frame management
  */
@@ -554,73 +621,18 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         return;
     }
 
-    int lux = read_lux_pct(ctx);
-    int backlight = read_backlight_pct(ctx);
+    // Compute all necessary values
     int luma = compute_frame_luma_pct(ctx);
     frame_free(ctx);
 
-    struct timespec sleep = { 0 };
+    int lux = read_lux_pct(ctx);
+    int backlight = read_backlight_pct(ctx);
 
-    if (ctx->backlight_last == backlight) {
-        if (ctx->data) {
-            struct DataPoint *nearest = ctx->data, *elem = ctx->data;
-            double nearest_dist = sqrt(pow(lux - nearest->lux, 2) + pow(luma - nearest->luma, 2));
-
-            while (elem) {
-                double dist = sqrt(pow(lux - elem->lux, 2) + pow(luma - elem->luma, 2));
-                if (dist < nearest_dist) {
-                    nearest_dist = dist;
-                    nearest = elem;
-                }
-                elem = elem->next;
-            }
-
-            if (backlight != nearest->backlight) {
-                printf("luma=%d lux=%d backlight=%d - SETTING backlight to %d\n", luma, lux, backlight, nearest->backlight);
-                for (
-                    int step = backlight < nearest->backlight ? 1 : -1;
-                    (step > 0 && backlight <= nearest->backlight) || (step < 0 && backlight >= nearest->backlight);
-                    backlight += step
-                ) {
-                    pwrite_long(ctx->backlight_raw_fd, backlight * ctx->backlight_max / 100);
-
-                    sleep.tv_nsec = 10 * 1000000L;
-                    while (nanosleep(&sleep, &sleep) == -1) {
-                        continue;
-                    }
-                }
-            } else {
-                printf("luma=%d lux=%d backlight=%d - ALREADY GOOD\n", luma, lux, backlight);
-            }
-        } else {
-            printf("luma=%d lux=%d backlight=%d - NO DATA, leaving backlight as it is\n", luma, lux, backlight);
-        }
-    } else {
-        struct DataPoint *new_point = data_add(ctx, luma, lux, backlight);
-        struct DataPoint *elem = ctx->data;
-        while (elem) {
-            if (
-                (elem->lux == lux && elem->luma == luma && elem != new_point) ||
-                (elem->lux <  lux && elem->luma == luma && elem->backlight > backlight) ||
-                (elem->lux == lux && elem->luma <  luma && elem->backlight < backlight) ||
-                (elem->lux >  lux && elem->luma == luma && elem->backlight < backlight) ||
-                (elem->lux == lux && elem->luma >  luma && elem->backlight > backlight)
-            ) {
-                elem = data_remove(ctx, elem);
-            } else {
-                elem = elem->next;
-            }
-        }
-
-        data_save(ctx);
-
-        printf("luma=%d lux=%d backlight=%d - LEARNED\n", luma, lux, backlight);
-    }
-
-    ctx->backlight_last = backlight;
+    // Set the most appropriate backlight value
+    update_backlight(ctx, lux, luma, backlight);
 
     // Sleep a bit before asking for the next frame
-    sleep.tv_nsec = MS_100;
+    struct timespec sleep = { .tv_nsec = MS_100 };
     while (nanosleep(&sleep, &sleep) == -1) {
         continue;
     }
