@@ -1,0 +1,9 @@
+[Unit]
+Description=Adjusting screen brightness based on screen contents and amount of ambient light
+
+[Service]
+ExecStart=/usr/bin/wluma
+Restart=always
+
+[Install]
+WantedBy=default.target
