@@ -119,6 +119,10 @@ static void pwrite_long(int fd, long val) {
     pwrite(fd, buf, len, 0);
 }
 
+static char* get_config(char *name, char *def) {
+    char *val = getenv(name);
+    return val ? val : def;
+}
 
 /******************************************************************************
  * Data points
@@ -750,25 +754,9 @@ static int main_loop(struct Context *ctx) {
  * Initialize Wayland client and Vulkan API
  */
 static int init(struct Context *ctx, int argc, char *argv[]) {
-    char *backlight_raw_name = "intel_backlight";
-    char *light_sensor_raw_base_path = "/sys/bus/iio/devices";
-
-    char c;
-    while ((c = getopt (argc, argv, "b:l:")) != -1) {
-        switch (c) {
-            case 'b':
-                backlight_raw_name = optarg;
-                break;
-            case 'l':
-                light_sensor_raw_base_path = optarg;
-                break;
-            default:
-                fprintf(stderr, "ERROR: Unknown option `-%c'\n", optopt);
-                return EXIT_FAILURE;
-        }
-    }
-
     char buf[1024];
+    char *backlight_raw_name = get_config("WLUMA_BACKLIGHT_NAME", "intel_backlight");
+    char *light_sensor_raw_base_path = get_config("WLUMA_LIGHT_SENSOR_BASE_PATH", "/sys/bus/iio/devices");
 
     sprintf(buf, "/sys/class/backlight/%s/max_brightness", backlight_raw_name);
     int fd = open(buf, O_RDONLY);
