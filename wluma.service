@@ -4,6 +4,7 @@ Description=Adjusting screen brightness based on screen contents and amount of a
 [Service]
 ExecStart=/usr/bin/wluma
 Restart=always
+EnvironmentFile=-%E/wluma/service.conf
 
 [Install]
 WantedBy=default.target
