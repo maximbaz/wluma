@@ -13,7 +13,9 @@
 
 #include "wlr-export-dmabuf-unstable-v1-client-protocol.h"
 
-#define MS_100 (100 * 1000000L)
+#define FRAME_REQUEST_DELAY_NS        (100 * 1000000L)
+#define BACKLIGHT_TRANSITION_DELAY_NS (2   * 1000000L)
+#define VULKAN_FENCE_MAX_WAIT_NS      (100 * 1000000L)
 
 struct DataPoint {
     struct DataPoint *next;
@@ -165,12 +167,9 @@ static void data_save(struct Context *ctx) {
     lseek(ctx->data_fd, 0, SEEK_SET);
 
     char buf[150];
-    int len = sprintf(buf, "%ld\n", ctx->lux_max_seen);
-    write(ctx->data_fd, buf, len);
-
     struct DataPoint *elem = ctx->data;
     while (elem) {
-        len = sprintf(buf, "%ld %d %d\n", elem->lux, elem->luma, elem->backlight);
+        int len = sprintf(buf, "%ld %d %d\n", elem->lux, elem->luma, elem->backlight);
         write(ctx->data_fd, buf, len);
         elem = elem->next;
     }
@@ -183,11 +182,6 @@ static bool data_load(struct Context *ctx) {
     }
 
     char line[150];
-
-    if (fgets(line, 150, f)) {
-        ctx->lux_max_seen = strtol(line, NULL, 10);
-    }
-
     while (fgets(line, 150, f)) {
         long val[3];
         char *word = NULL;
@@ -199,6 +193,7 @@ static bool data_load(struct Context *ctx) {
             val[i] = strtol(word, NULL, 10);
         }
         data_add(ctx, val[0], val[1], val[2]);
+        ctx->lux_max_seen = fmax(ctx->lux_max_seen, val[0]);
     }
 
     fclose(f);
@@ -210,16 +205,8 @@ static bool data_load(struct Context *ctx) {
  * Devices
  */
 
-static int read_lux(struct Context *ctx) {
-    long lux = pread_long(ctx->light_sensor_raw_fd);
-
-    // Assume last seen value is the maximum possible
-    if (lux > ctx->lux_max_seen) {
-        ctx->lux_max_seen = lux;
-        data_save(ctx);
-    }
-
-    return lux;
+static long read_lux(struct Context *ctx) {
+    return pread_long(ctx->light_sensor_raw_fd);
 }
 
 static int read_backlight_pct(struct Context *ctx) {
@@ -497,7 +484,7 @@ static int compute_frame_luma_pct(struct Context *ctx) {
         goto exit;
     }
 
-    if (vkWaitForFences(ctx->vulkan->device, 1, &ctx->vulkan->fence, 1, MS_100) != VK_SUCCESS) {
+    if (vkWaitForFences(ctx->vulkan->device, 1, &ctx->vulkan->fence, 1, VULKAN_FENCE_MAX_WAIT_NS) != VK_SUCCESS) {
         fprintf(stderr, "ERROR: Failed to wait for Vulkan fence!\n");
         goto exit;
     }
@@ -531,43 +518,7 @@ exit:
  */
 
 static void update_backlight(struct Context *ctx, long lux, int luma, int backlight) {
-    if (ctx->backlight_last == backlight) {
-        if (ctx->data) {
-            struct DataPoint *nearest = ctx->data, *elem = ctx->data;
-            double nearest_dist = sqrt(pow((lux - nearest->lux) * 100 / ctx->lux_max_seen, 2) + pow(luma - nearest->luma, 2));
-
-            while (elem) {
-                double dist = sqrt(pow((lux - elem->lux) * 100 / ctx->lux_max_seen, 2) + pow(luma - elem->luma, 2));
-                if (dist < nearest_dist) {
-                    nearest_dist = dist;
-                    nearest = elem;
-                }
-                elem = elem->next;
-            }
-
-            if (backlight != nearest->backlight) {
-                printf("lux=%ld luma=%d backlight=%d - SETTING backlight to %d\n", lux, luma, backlight, nearest->backlight);
-                struct timespec sleep = { 0 };
-                for (
-                    int step = backlight < nearest->backlight ? 1 : -1;
-                    (step > 0 && backlight <= nearest->backlight) || (step < 0 && backlight >= nearest->backlight);
-                    backlight += step
-                ) {
-                    pwrite_long(ctx->backlight_raw_fd, backlight * ctx->backlight_max / 100);
-
-                    sleep.tv_nsec = 10 * 1000000L;
-                    while (nanosleep(&sleep, &sleep) == -1) {
-                        continue;
-                    }
-                }
-                backlight = nearest->backlight;
-            } else {
-                printf("lux=%ld luma=%d backlight=%d - ALREADY GOOD\n", lux, luma, backlight);
-            }
-        } else {
-            printf("lux=%ld luma=%d backlight=%d - NO DATA, leaving backlight as it is\n", lux, luma, backlight);
-        }
-    } else {
+    if (!ctx->data || ctx->backlight_last != backlight) {
         struct DataPoint *new_point = data_add(ctx, lux, luma, backlight);
         struct DataPoint *elem = ctx->data;
         while (elem) {
@@ -586,7 +537,40 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
 
         data_save(ctx);
 
+        ctx->lux_max_seen = fmax(ctx->lux_max_seen, lux);
+
         printf("lux=%ld luma=%d backlight=%d - LEARNED\n", lux, luma, backlight);
+    } else {
+        struct DataPoint *nearest = ctx->data, *elem = ctx->data;
+        long lux_capped = fmin(lux, ctx->lux_max_seen);
+        double nearest_dist = sqrt(pow((lux_capped - nearest->lux) * 100 / ctx->lux_max_seen, 2) + pow(luma - nearest->luma, 2));
+
+        while (elem) {
+            double dist = sqrt(pow((lux_capped - elem->lux) * 100 / ctx->lux_max_seen, 2) + pow(luma - elem->luma, 2));
+            if (dist < nearest_dist) {
+                nearest_dist = dist;
+                nearest = elem;
+            }
+            elem = elem->next;
+        }
+
+        if (backlight != nearest->backlight) {
+            printf("lux=%ld luma=%d backlight=%d - SETTING backlight to %d\n", lux, luma, backlight, nearest->backlight);
+            struct timespec sleep = { 0 };
+            for (
+                int step = backlight < nearest->backlight ? 1 : -1;
+                (step > 0 && backlight <= nearest->backlight) || (step < 0 && backlight >= nearest->backlight);
+                backlight += step
+            ) {
+                pwrite_long(ctx->backlight_raw_fd, backlight * ctx->backlight_max / 100);
+
+                sleep.tv_nsec = BACKLIGHT_TRANSITION_DELAY_NS;
+                while (nanosleep(&sleep, &sleep) == -1) {
+                    continue;
+                }
+            }
+            backlight = nearest->backlight;
+        }
     }
 
     ctx->backlight_last = backlight;
@@ -633,7 +617,7 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
     update_backlight(ctx, lux, luma, backlight);
 
     // Sleep a bit before asking for the next frame
-    struct timespec sleep = { .tv_nsec = MS_100 };
+    struct timespec sleep = { .tv_nsec = FRAME_REQUEST_DELAY_NS };
     while (nanosleep(&sleep, &sleep) == -1) {
         continue;
     }
