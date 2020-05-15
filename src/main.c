@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -80,6 +81,7 @@ struct Context {
 
     // Ambient light sensor raw data
     int light_sensor_raw_fd;
+    double light_sensor_scale;
     long lux_max_seen;
 
     // Backlight control
@@ -101,12 +103,12 @@ struct Context {
  * Utilities
  */
 
-static long pread_long(int fd) {
+static double pread_double(int fd) {
     char buf[50];
     if (pread(fd, buf, 50, 0) < 0) {
         return -1;
     }
-    return strtol(buf, NULL, 10);
+    return strtod(buf, NULL);
 }
 
 static void pwrite_long(int fd, long val) {
@@ -193,7 +195,7 @@ static bool data_load(struct Context *ctx) {
             val[i] = strtol(word, NULL, 10);
         }
         data_add(ctx, val[0], val[1], val[2]);
-        ctx->lux_max_seen = fmax(ctx->lux_max_seen, val[0]);
+        ctx->lux_max_seen = fmax(fmax(ctx->lux_max_seen, val[0]), 1);
     }
 
     fclose(f);
@@ -206,11 +208,11 @@ static bool data_load(struct Context *ctx) {
  */
 
 static long read_lux(struct Context *ctx) {
-    return pread_long(ctx->light_sensor_raw_fd);
+    return pread_double(ctx->light_sensor_raw_fd) * ctx->light_sensor_scale;
 }
 
 static int read_backlight_pct(struct Context *ctx) {
-    return pread_long(ctx->backlight_raw_fd) * 100 / ctx->backlight_max;
+    return pread_double(ctx->backlight_raw_fd) * 100 / ctx->backlight_max;
 }
 
 
@@ -537,7 +539,7 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
 
         data_save(ctx);
 
-        ctx->lux_max_seen = fmax(ctx->lux_max_seen, lux);
+        ctx->lux_max_seen = fmax(fmax(ctx->lux_max_seen, lux), 1);
 
         printf("lux=%ld luma=%d backlight=%d - LEARNED\n", lux, luma, backlight);
     } else {
@@ -748,7 +750,7 @@ static int main_loop(struct Context *ctx) {
  */
 static int init(struct Context *ctx, int argc, char *argv[]) {
     char *backlight_raw_name = "intel_backlight";
-    char *light_sensor_raw_path = "/sys/bus/iio/devices/iio:device0/in_illuminance_raw";
+    char *light_sensor_raw_base_path = "/sys/bus/iio/devices";
 
     char c;
     while ((c = getopt (argc, argv, "b:l:")) != -1) {
@@ -757,7 +759,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
                 backlight_raw_name = optarg;
                 break;
             case 'l':
-                light_sensor_raw_path = optarg;
+                light_sensor_raw_base_path = optarg;
                 break;
             default:
                 fprintf(stderr, "ERROR: Unknown option `-%c'\n", optopt);
@@ -765,15 +767,15 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
         }
     }
 
-    char buf[256];
+    char buf[1024];
 
     sprintf(buf, "/sys/class/backlight/%s/max_brightness", backlight_raw_name);
     int fd = open(buf, O_RDONLY);
-    if (fd == -1) {
+    if (fd < 1) {
         fprintf(stderr, "ERROR: Failed to open max_brightness file: %s\n", buf);
         return EXIT_FAILURE;
     }
-    ctx->backlight_max = pread_long(fd);
+    ctx->backlight_max = pread_double(fd);
     close(fd);
 
     sprintf(buf, "/sys/class/backlight/%s/brightness", backlight_raw_name);
@@ -784,9 +786,46 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
     }
     ctx->backlight_last = read_backlight_pct(ctx);
 
-    ctx->light_sensor_raw_fd = open(light_sensor_raw_path, O_RDONLY);
-    if (ctx->light_sensor_raw_fd == -1) {
-        fprintf(stderr, "ERROR: Failed to open ambient light sensor device file: %s\n", light_sensor_raw_path);
+    DIR *dir = opendir(light_sensor_raw_base_path);
+    if (dir == NULL) {
+        fprintf(stderr, "ERROR: Failed to open light sensor base dir: %s\n", light_sensor_raw_base_path);
+        return EXIT_FAILURE;
+    }
+
+    struct dirent *subdir;
+    while ((subdir = readdir(dir))) {
+        if (subdir->d_name[0] == '.') {
+            continue;
+        }
+
+        sprintf(buf, "%s/%s/name", light_sensor_raw_base_path, subdir->d_name);
+        fd = open(buf, O_RDONLY);
+        if (fd > 0) {
+            int count = fmax(1, read(fd, buf, sizeof(buf)));
+            buf[count - 1] = '\0';
+            close(fd);
+
+            if (!strcmp("als", buf)) {
+                sprintf(buf, "%s/%s/in_illuminance_scale", light_sensor_raw_base_path, subdir->d_name);
+                fd = open(buf, O_RDONLY);
+                ctx->light_sensor_scale = 1;
+                if (fd > 0) {
+                    ctx->light_sensor_scale = pread_double(fd);
+                    close(fd);
+                }
+
+                sprintf(buf, "%s/%s/in_illuminance_raw", light_sensor_raw_base_path, subdir->d_name);
+                ctx->light_sensor_raw_fd = open(buf, O_RDONLY);
+                if (ctx->light_sensor_raw_fd > 0) {
+                    break;
+                }
+            }
+        }
+    }
+    closedir(dir);
+
+    if (ctx->light_sensor_raw_fd < 1) {
+        fprintf(stderr, "ERROR: Failed to find ambient light sensor device file in base dir: %s\n", light_sensor_raw_base_path);
         return EXIT_FAILURE;
     }
 
