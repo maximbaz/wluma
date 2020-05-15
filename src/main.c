@@ -82,6 +82,7 @@ struct Context {
     // Ambient light sensor raw data
     int light_sensor_raw_fd;
     double light_sensor_scale;
+    double light_sensor_offset;
     long lux_max_seen;
 
     // Backlight control
@@ -208,11 +209,11 @@ static bool data_load(struct Context *ctx) {
  */
 
 static long read_lux(struct Context *ctx) {
-    return pread_double(ctx->light_sensor_raw_fd) * ctx->light_sensor_scale;
+    return round((pread_double(ctx->light_sensor_raw_fd) + ctx->light_sensor_offset) * ctx->light_sensor_scale);
 }
 
 static int read_backlight_pct(struct Context *ctx) {
-    return pread_double(ctx->backlight_raw_fd) * 100 / ctx->backlight_max;
+    return round(pread_double(ctx->backlight_raw_fd) * 100 / ctx->backlight_max);
 }
 
 
@@ -806,11 +807,19 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
             close(fd);
 
             if (!strcmp("als", buf)) {
+                ctx->light_sensor_scale = 1;
                 sprintf(buf, "%s/%s/in_illuminance_scale", light_sensor_raw_base_path, subdir->d_name);
                 fd = open(buf, O_RDONLY);
-                ctx->light_sensor_scale = 1;
                 if (fd > 0) {
                     ctx->light_sensor_scale = pread_double(fd);
+                    close(fd);
+                }
+
+                ctx->light_sensor_offset = 0;
+                sprintf(buf, "%s/%s/in_illuminance_offset", light_sensor_raw_base_path, subdir->d_name);
+                fd = open(buf, O_RDONLY);
+                if (fd > 0) {
+                    ctx->light_sensor_offset = pread_double(fd);
                     close(fd);
                 }
 
