@@ -531,9 +531,10 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
         while (elem) {
             if (
                 (elem->lux == lux && elem->luma == luma && elem != new_point) ||
-                (elem->lux <  lux && elem->luma == luma && elem->backlight > backlight) ||
+                (elem->lux >  lux && elem->luma == luma) ||
+                (elem->lux <  lux && elem->luma >= luma && elem->backlight > backlight) ||
                 (elem->lux == lux && elem->luma <  luma && elem->backlight < backlight) ||
-                (elem->lux >  lux && elem->luma == luma && elem->backlight < backlight) ||
+                (elem->lux >  lux && elem->luma <= luma && elem->backlight < backlight) ||
                 (elem->lux == lux && elem->luma >  luma && elem->backlight > backlight)
             ) {
                 elem = data_remove(ctx, elem);
