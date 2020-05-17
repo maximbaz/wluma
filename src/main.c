@@ -792,7 +792,8 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
         fd = open(buf, O_RDONLY);
         if (fd > 0) {
             int count = fmax(1, read(fd, buf, sizeof(buf)));
-            buf[count - 1] = '\0';
+            buf[count] = 0;
+            buf[strcspn(buf, "\n")] = 0;
             close(fd);
 
             if (!strcmp("als", buf)) {
