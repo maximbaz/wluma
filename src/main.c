@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
 #include <vulkan/vulkan.h>
@@ -119,7 +120,7 @@ static void pwrite_long(int fd, long val) {
     pwrite(fd, buf, len, 0);
 }
 
-static char* get_config(char *name, char *def) {
+static char* get_env(char *name, char *def) {
     char *val = getenv(name);
     return val ? val : def;
 }
@@ -756,8 +757,8 @@ static int main_loop(struct Context *ctx) {
  */
 static int init(struct Context *ctx, int argc, char *argv[]) {
     char buf[1024];
-    char *backlight_raw_name = get_config("WLUMA_BACKLIGHT_NAME", "intel_backlight");
-    char *light_sensor_raw_base_path = get_config("WLUMA_LIGHT_SENSOR_BASE_PATH", "/sys/bus/iio/devices");
+    char *backlight_raw_name = get_env("WLUMA_BACKLIGHT_NAME", "intel_backlight");
+    char *light_sensor_raw_base_path = get_env("WLUMA_LIGHT_SENSOR_BASE_PATH", "/sys/bus/iio/devices");
 
     sprintf(buf, "/sys/class/backlight/%s/max_brightness", backlight_raw_name);
     int fd = open(buf, O_RDONLY);
@@ -828,7 +829,22 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    ctx->data_fd = open("data.txt", O_RDWR | O_CREAT | O_DSYNC, 0644);
+    char *data_dir = get_env("XDG_DATA_HOME", NULL);
+    if (data_dir == NULL) {
+        data_dir = get_env("HOME", NULL);
+        if (data_dir == NULL) {
+            fprintf(stderr, "ERROR: Failed to read $XDG_DATA_HOME or $HOME!\n");
+            return EXIT_FAILURE;
+        }
+
+        sprintf(buf, "%s/.local/share/wluma", data_dir);
+    } else {
+        sprintf(buf, "%s/wluma", data_dir);
+    }
+    mkdir(buf, 0700);
+
+    strcat(buf, "/data");
+    ctx->data_fd = open(buf, O_RDWR | O_CREAT | O_DSYNC, 0600);
     if (ctx->data_fd == -1) {
         fprintf(stderr, "ERROR: Failed to open data file!\n");
         return EXIT_FAILURE;
