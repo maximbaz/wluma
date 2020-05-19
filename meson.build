@@ -1,10 +1,10 @@
 project(
     'wluma',
     'c',
-    version: '0.1.0',
+    version: '1.0.0',
     license: 'MIT',
     default_options: [
-        'buildtype=debug',
+        'buildtype=release',
         'c_std=c11',
         'warning_level=2',
         'werror=false',
@@ -13,6 +13,8 @@ project(
 
 add_project_arguments([
     '-Wno-unused',
+    '-Wno-unused-result',
+    '-D_FORTIFY_SOURCE=2',
     '-DWLR_USE_UNSTABLE',
     '-DENABLE_DMABUF',
 ], language: 'c')

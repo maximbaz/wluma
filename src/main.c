@@ -547,8 +547,6 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
         data_save(ctx);
 
         ctx->lux_max_seen = fmax(fmax(ctx->lux_max_seen, lux), 1);
-
-        printf("lux=%ld luma=%d backlight=%d - LEARNED\n", lux, luma, backlight);
     } else {
         struct DataPoint *nearest = ctx->data, *elem = ctx->data;
         long lux_capped = fmin(lux, ctx->lux_max_seen);
@@ -564,7 +562,6 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
         }
 
         if (backlight != nearest->backlight) {
-            printf("lux=%ld luma=%d backlight=%d - SETTING backlight to %d\n", lux, luma, backlight, nearest->backlight);
             struct timespec sleep = { 0 };
             for (
                 int step = backlight < nearest->backlight ? 1 : -1;
