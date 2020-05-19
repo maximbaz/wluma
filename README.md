@@ -6,6 +6,10 @@ A tool for wlroots-based compositors that automatically adjusts screen brightnes
 
 The app will automatically brighten the screen when you are looking at a dark window (such as a fullscreen terminal) and darken the screen when you are looking at a bright window (such as web browser). The algorithm takes into consideration the amount of ambient light around you, so the same window can be brighter during the day than during the night.
 
+With permission of [Lumen](https://github.com/anishathalye/lumen)'s author (the project that inspired me to create this app), I'm reusing a demo GIF:
+
+![demo](https://user-images.githubusercontent.com/1177900/82347130-8bd22b80-99f7-11ea-8545-0d311240a30d.gif)
+
 ## Usage
 
 Simply launch `wluma` and continue adjusting your screen brightness as you usually do - the app will learn your preferences.
