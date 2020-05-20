@@ -35,6 +35,10 @@ The following environment variables are available:
 - `WLUMA_BACKLIGHT_NAME` - backlight device name in `/sys/class/backlight/`, default `intel_backlight`
 - `WLUMA_LIGHT_SENSOR_BASE_PATH` - base path to the light sensor device, default `/sys/bus/iio/devices` (see also [fake-light-sensor](https://github.com/cyrinux/fake-light-sensor) if your laptop doesn't have an ambient light sensor device)
 
+## Caveats
+
+- Current drivers do not support importing images with custom DRM modifiers, this work [is being done in mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/1466). Until then, the only workaround is to use `WLR_DRM_NO_MODIFIERS=1` from wlroots.
+
 ## Relevant projects
 
 - [fake-light-sensor](https://github.com/cyrinux/fake-light-sensor): simulate ambient light sensor using a webcam
