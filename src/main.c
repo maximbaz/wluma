@@ -18,6 +18,7 @@
 #define FRAME_REQUEST_DELAY_NS        (100 * 1000000L)
 #define BACKLIGHT_TRANSITION_DELAY_NS (2   * 1000000L)
 #define VULKAN_FENCE_MAX_WAIT_NS      (100 * 1000000L)
+#define PENDING_COUNTDOWN_RESET       15
 
 struct DataPoint {
     struct DataPoint *next;
@@ -94,6 +95,10 @@ struct Context {
     // Data points to determine the best backlight value
     int data_fd;
     struct DataPoint *data;
+
+    // Pending change data point
+    struct DataPoint pendingDataPoint;
+    int pendingCountdown;
 
     // Errors
     bool quit;
@@ -527,16 +532,25 @@ exit:
 
 static void update_backlight(struct Context *ctx, long lux, int luma, int backlight) {
     if (!ctx->data || ctx->backlight_last != backlight) {
-        struct DataPoint *new_point = data_add(ctx, lux, luma, backlight);
+        ctx->pendingCountdown = PENDING_COUNTDOWN_RESET;
+        ctx->pendingDataPoint.lux = lux;
+        ctx->pendingDataPoint.luma = luma;
+        ctx->pendingDataPoint.backlight = backlight;
+    } else if (ctx->pendingCountdown > 1) {
+        ctx->pendingCountdown--;
+    } else if (ctx->pendingCountdown == 1) {
+        ctx->pendingCountdown = 0;
+
+        struct DataPoint *new_point = data_add(ctx, ctx->pendingDataPoint.lux, ctx->pendingDataPoint.luma, ctx->pendingDataPoint.backlight);
         struct DataPoint *elem = ctx->data;
         while (elem) {
             if (
-                (elem->lux == lux && elem->luma == luma && elem != new_point) ||
-                (elem->lux >  lux && elem->luma == luma) ||
-                (elem->lux <  lux && elem->luma >= luma && elem->backlight > backlight) ||
-                (elem->lux == lux && elem->luma <  luma && elem->backlight < backlight) ||
-                (elem->lux >  lux && elem->luma <= luma && elem->backlight < backlight) ||
-                (elem->lux == lux && elem->luma >  luma && elem->backlight > backlight)
+                (elem->lux == ctx->pendingDataPoint.lux && elem->luma == ctx->pendingDataPoint.luma && elem != new_point) ||
+                (elem->lux >  ctx->pendingDataPoint.lux && elem->luma == ctx->pendingDataPoint.luma) ||
+                (elem->lux <  ctx->pendingDataPoint.lux && elem->luma >= ctx->pendingDataPoint.luma && elem->backlight > ctx->pendingDataPoint.backlight) ||
+                (elem->lux == ctx->pendingDataPoint.lux && elem->luma <  ctx->pendingDataPoint.luma && elem->backlight < ctx->pendingDataPoint.backlight) ||
+                (elem->lux >  ctx->pendingDataPoint.lux && elem->luma <= ctx->pendingDataPoint.luma && elem->backlight < ctx->pendingDataPoint.backlight) ||
+                (elem->lux == ctx->pendingDataPoint.lux && elem->luma >  ctx->pendingDataPoint.luma && elem->backlight > ctx->pendingDataPoint.backlight)
             ) {
                 elem = data_remove(ctx, elem);
             } else {
@@ -546,7 +560,7 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
 
         data_save(ctx);
 
-        ctx->lux_max_seen = fmax(fmax(ctx->lux_max_seen, lux), 1);
+        ctx->lux_max_seen = fmax(fmax(ctx->lux_max_seen, ctx->pendingDataPoint.lux), 1);
     } else {
         struct DataPoint *nearest = ctx->data, *elem = ctx->data;
         long lux_capped = fmin(lux, ctx->lux_max_seen);
@@ -982,7 +996,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
     VkMemoryRequirements bufferMemoryRequirements;
     vkGetBufferMemoryRequirements(ctx->vulkan->device, ctx->vulkan->buffer, &bufferMemoryRequirements);
 
-    VkMemoryAllocateInfo bufferMemoryAllocateInfo ={
+    VkMemoryAllocateInfo bufferMemoryAllocateInfo = {
         .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .allocationSize  = bufferMemoryRequirements.size,
         .memoryTypeIndex = 0,
