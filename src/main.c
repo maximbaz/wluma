@@ -19,6 +19,7 @@
 #define BACKLIGHT_TRANSITION_DELAY_NS (2   * 1000000L)
 #define VULKAN_FENCE_MAX_WAIT_NS      (100 * 1000000L)
 #define PENDING_COUNTDOWN_RESET       15
+#define AVG_LUX_WINDOW_SIZE           10
 
 struct DataPoint {
     struct DataPoint *next;
@@ -86,6 +87,9 @@ struct Context {
     double light_sensor_scale;
     double light_sensor_offset;
     long lux_max_seen;
+    long lux_window[AVG_LUX_WINDOW_SIZE];
+    int lux_window_next_idx;
+    bool lux_avg_initialized;
 
     // Backlight control
     int backlight_raw_fd;
@@ -128,6 +132,14 @@ static void pwrite_long(int fd, long val) {
 static char* get_env(char *name, char *def) {
     char *val = getenv(name);
     return val ? val : def;
+}
+
+static long calc_avg_lux(struct Context *ctx) {
+    long sum = 0;
+    for (int i=0; i<AVG_LUX_WINDOW_SIZE; i++) {
+        sum += ctx->lux_window[i];
+    }
+    return sum / AVG_LUX_WINDOW_SIZE;
 }
 
 /******************************************************************************
@@ -633,8 +645,14 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         return;
     }
 
+    ctx->lux_window[ctx->lux_window_next_idx] = lux;
+    ctx->lux_window_next_idx = (ctx->lux_window_next_idx + 1) % AVG_LUX_WINDOW_SIZE;
+    ctx->lux_avg_initialized = ctx->lux_avg_initialized || ctx->lux_window_next_idx == 0;
+
     // Set the most appropriate backlight value
-    update_backlight(ctx, lux, luma, backlight);
+    if (ctx->lux_avg_initialized) {
+        update_backlight(ctx, calc_avg_lux(ctx), luma, backlight);
+    }
 
     // Sleep a bit before asking for the next frame
     struct timespec sleep = { .tv_nsec = FRAME_REQUEST_DELAY_NS };
