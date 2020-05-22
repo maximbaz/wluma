@@ -17,7 +17,6 @@
 #include "wlr-export-dmabuf-unstable-v1-client-protocol.h"
 
 #define FRAME_REQUEST_DELAY_NS        (100 * 1000000L)
-#define BACKLIGHT_TRANSITION_DELAY_NS (2   * 1000000L)
 #define VULKAN_FENCE_MAX_WAIT_NS      (100 * 1000000L)
 #define PENDING_COUNTDOWN_RESET       15
 #define AVG_LUX_WINDOW_SIZE           10
@@ -705,6 +704,7 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
 
         if (backlight != target_backlight) {
             struct timespec sleep = { 0 };
+            long backlight_transition_delay_ns = 300 / abs(backlight - target_backlight) * 1000000L;
             for (
                 int step = backlight < target_backlight ? 1 : -1;
                 (step > 0 && backlight <= target_backlight) || (step < 0 && backlight >= target_backlight);
@@ -712,7 +712,7 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
             ) {
                 pwrite_long(ctx->backlight_raw_fd, backlight * ctx->backlight_max / 100);
 
-                sleep.tv_nsec = BACKLIGHT_TRANSITION_DELAY_NS;
+                sleep.tv_nsec = backlight_transition_delay_ns;
                 while (nanosleep(&sleep, &sleep) == -1) {
                     continue;
                 }
