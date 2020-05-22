@@ -761,6 +761,11 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
         return;
     }
 
+    // Track backlight values until lux initialization is complete
+    if (!ctx->lux_avg_initialized) {
+        ctx->backlight_last = backlight;
+    }
+
     ctx->lux_window[ctx->lux_window_next_idx] = lux;
     ctx->lux_window_next_idx = (ctx->lux_window_next_idx + 1) % AVG_LUX_WINDOW_SIZE;
     ctx->lux_avg_initialized = ctx->lux_avg_initialized || ctx->lux_window_next_idx == 0;
@@ -902,33 +907,49 @@ static int main_loop(struct Context *ctx) {
  */
 static int init(struct Context *ctx, int argc, char *argv[]) {
     char buf[1024];
-    char *backlight_raw_name = get_env("WLUMA_BACKLIGHT_NAME", "intel_backlight");
+    int fd;
+    DIR *dir;
+    struct dirent *subdir;
     char *light_sensor_raw_base_path = get_env("WLUMA_LIGHT_SENSOR_BASE_PATH", "/sys/bus/iio/devices");
 
-    sprintf(buf, "/sys/class/backlight/%s/max_brightness", backlight_raw_name);
-    int fd = open(buf, O_RDONLY);
-    if (fd < 1) {
-        fprintf(stderr, "ERROR: Failed to open max_brightness file: %s\n", buf);
+    char *backlight_raw_base_path = "/sys/class/backlight";
+    dir = opendir(backlight_raw_base_path);
+    if (dir == NULL) {
+        fprintf(stderr, "ERROR: Failed to open backlight device base dir: %s\n", backlight_raw_base_path);
         return EXIT_FAILURE;
     }
-    ctx->backlight_max = pread_double(fd);
-    close(fd);
 
-    sprintf(buf, "/sys/class/backlight/%s/brightness", backlight_raw_name);
-    ctx->backlight_raw_fd = open(buf, O_RDWR);
-    if (ctx->backlight_raw_fd == -1) {
-        fprintf(stderr, "ERROR: Failed to open brightness device file: %s\n", buf);
+    while ((subdir = readdir(dir))) {
+        if (subdir->d_name[0] == '.') {
+            continue;
+        }
+
+        sprintf(buf, "%s/%s/max_brightness", backlight_raw_base_path, subdir->d_name);
+        fd = open(buf, O_RDONLY);
+        if (fd > 0) {
+            ctx->backlight_max = pread_double(fd);
+            close(fd);
+
+            sprintf(buf, "%s/%s/brightness", backlight_raw_base_path, subdir->d_name);
+            ctx->backlight_raw_fd = open(buf, O_RDWR);
+            if (ctx->backlight_raw_fd > 0) {
+                break;
+            }
+        }
+    }
+    closedir(dir);
+
+    if (ctx->backlight_raw_fd < 1) {
+        fprintf(stderr, "ERROR: Failed to find backlight device file in base dir: %s\n", backlight_raw_base_path);
         return EXIT_FAILURE;
     }
-    ctx->backlight_last = read_backlight_pct(ctx);
 
-    DIR *dir = opendir(light_sensor_raw_base_path);
+    dir = opendir(light_sensor_raw_base_path);
     if (dir == NULL) {
         fprintf(stderr, "ERROR: Failed to open light sensor base dir: %s\n", light_sensor_raw_base_path);
         return EXIT_FAILURE;
     }
 
-    struct dirent *subdir;
     while ((subdir = readdir(dir))) {
         if (subdir->d_name[0] == '.') {
             continue;

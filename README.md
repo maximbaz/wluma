@@ -28,12 +28,11 @@ Alternatively, build using `make build` and install via `sudo make install`.
 
 To run the app, simply launch `wluma` or use the provided systemd user service.
 
-## Configuration
+## Strategies other than ambient light sensor
 
-The following environment variables are available:
+By default `wluma` uses ambient light sensor device to decide the best brightness value. If your laptop doesn't have this sensor, or if you simply want to use other strategies to distinguish day from night, you can use environment variable `WLUMA_LIGHT_SENSOR_BASE_PATH` to point `wluma` to a different strategy.
 
-- `WLUMA_BACKLIGHT_NAME` - backlight device name in `/sys/class/backlight/`, default `intel_backlight`
-- `WLUMA_LIGHT_SENSOR_BASE_PATH` - base path to the light sensor device, default `/sys/bus/iio/devices` (see also [fake-light-sensor](https://github.com/cyrinux/fake-light-sensor) if your laptop doesn't have an ambient light sensor device)
+See [fake-light-sensor](https://github.com/cyrinux/fake-light-sensor) project for more details of how this can be used.
 
 ## Caveats
 
@@ -41,5 +40,5 @@ The following environment variables are available:
 
 ## Relevant projects
 
-- [fake-light-sensor](https://github.com/cyrinux/fake-light-sensor): simulate ambient light sensor using a webcam
+- [fake-light-sensor](https://github.com/cyrinux/fake-light-sensor): simulate ambient light sensor using a webcam or time of the day
 - [lumen](https://github.com/anishathalye/lumen): project that inspired me to create this app
