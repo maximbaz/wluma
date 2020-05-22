@@ -1055,7 +1055,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
     VkApplicationInfo appInfo = {
         .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName   = "wluma",
-        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+        .applicationVersion = VK_MAKE_VERSION(1, 1, 0),
         .pEngineName        = "No Engine",
         .engineVersion      = VK_MAKE_VERSION(1, 0, 0),
         .apiVersion         = VK_API_VERSION_1_0,
