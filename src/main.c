@@ -2,6 +2,7 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <float.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -20,6 +21,10 @@
 #define VULKAN_FENCE_MAX_WAIT_NS      (100 * 1000000L)
 #define PENDING_COUNTDOWN_RESET       15
 #define AVG_LUX_WINDOW_SIZE           10
+
+struct Vector {
+    double x, y, z;
+};
 
 struct DataPoint {
     struct DataPoint *next;
@@ -141,6 +146,77 @@ static long calc_avg_lux(struct Context *ctx) {
     }
     return sum / AVG_LUX_WINDOW_SIZE;
 }
+
+
+/******************************************************************************
+ * Vector math
+ */
+
+static struct Vector vector_create(struct DataPoint *a, struct DataPoint *b) {
+    struct Vector result = {
+        .x = a->lux - b->lux,
+        .y = a->luma - b->luma,
+        .z = a->backlight - b->backlight,
+    };
+    return result;
+}
+
+static struct Vector point_create(struct DataPoint *a) {
+    struct Vector result = {
+        .x = a->lux,
+        .y = a->luma,
+        .z = a->backlight,
+    };
+    return result;
+}
+
+static double vector_dot_product(struct Vector *a, struct Vector *b) {
+    return a->x * b->x + a->y * b->y + a->z * b->z;
+}
+
+static void vector_normalize(struct Vector *vec) {
+    int length = sqrt(vector_dot_product(vec, vec));
+    vec->x /= length;
+    vec->y /= length;
+    vec->z /= length;
+}
+
+static struct Vector vector_cross_product(struct Vector *a, struct Vector *b) {
+    struct Vector result = {
+        .x = a->y * b->z - a->z * b->y,
+        .y = a->z * b->x - a->x * b->z,
+        .z = a->x * b->y - a->y * b->x,
+    };
+    return result;
+}
+
+static struct Vector vector_subtract(struct Vector *a, struct Vector *b) {
+    struct Vector result = {
+        .x = a->x - b->x,
+        .y = a->y - b->y,
+        .z = a->z - b->z,
+    };
+    return result;
+}
+
+static struct Vector vector_add(struct Vector *a, struct Vector *b) {
+    struct Vector result = {
+        .x = a->x + b->x,
+        .y = a->y + b->y,
+        .z = a->z + b->z,
+    };
+    return result;
+}
+
+static struct Vector vector_scale(struct Vector *a, double scale) {
+    struct Vector result = {
+        .x = a->x * scale,
+        .y = a->y * scale,
+        .z = a->z * scale,
+    };
+    return result;
+}
+
 
 /******************************************************************************
  * Data points
@@ -543,7 +619,7 @@ exit:
  */
 
 static void update_backlight(struct Context *ctx, long lux, int luma, int backlight) {
-    if (!ctx->data || ctx->backlight_last != backlight) {
+    if ((ctx->backlight_last != backlight) || (ctx->data == NULL && ctx->pendingCountdown == 0)) {
         ctx->pendingCountdown = PENDING_COUNTDOWN_RESET;
         ctx->pendingDataPoint.lux = lux;
         ctx->pendingDataPoint.luma = luma;
@@ -574,24 +650,64 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
 
         ctx->lux_max_seen = fmax(fmax(ctx->lux_max_seen, ctx->pendingDataPoint.lux), 1);
     } else {
-        struct DataPoint *nearest = ctx->data, *elem = ctx->data;
+        struct DataPoint *nearest = NULL, *nearest2 = NULL, *nearest3 = NULL, *elem = ctx->data;
+        double nearest_dist = 0, nearest2_dist = 0, nearest3_dist = 0;
         long lux_capped = fmin(lux, ctx->lux_max_seen);
-        double nearest_dist = sqrt(pow((lux_capped - nearest->lux) * 100 / ctx->lux_max_seen, 2) + pow(luma - nearest->luma, 2));
 
         while (elem) {
             double dist = sqrt(pow((lux_capped - elem->lux) * 100 / ctx->lux_max_seen, 2) + pow(luma - elem->luma, 2));
-            if (dist < nearest_dist) {
+            if (dist < nearest_dist || nearest == NULL) {
+                nearest3_dist = nearest2_dist;
+                nearest3 = nearest2;
+
+                nearest2_dist = nearest_dist;
+                nearest2 = nearest;
+
                 nearest_dist = dist;
                 nearest = elem;
+            } else if (dist < nearest2_dist || nearest2 == NULL) {
+                nearest3_dist = nearest2_dist;
+                nearest3 = nearest2;
+
+                nearest2_dist = dist;
+                nearest2 = elem;
+            } else if (dist < nearest3_dist || nearest3 == NULL) {
+                nearest3_dist = dist;
+                nearest3 = elem;
             }
             elem = elem->next;
         }
 
-        if (backlight != nearest->backlight) {
+        int target_backlight = nearest->backlight;
+        if (nearest2 != NULL && nearest3 != NULL) {
+            struct Vector plane_vec1 = vector_create(nearest, nearest2);
+            struct Vector plane_vec2 = vector_create(nearest, nearest3);
+            struct Vector plane_normal = vector_cross_product(&plane_vec1, &plane_vec2);
+            vector_normalize(&plane_normal);
+
+            struct DataPoint line_point1 = { .lux = lux, .luma = luma, .backlight = 0 };
+            struct DataPoint line_point2 = { .lux = lux, .luma = luma, .backlight = 100 };
+            struct Vector line_direction = vector_create(&line_point1, &line_point2);
+            vector_normalize(&line_direction);
+
+            double plane_line_dot = vector_dot_product(&plane_normal, &line_direction);
+            if (fabs(plane_line_dot) > DBL_EPSILON) {
+                struct Vector plane_point = point_create(nearest);
+                struct Vector line_point = point_create(&line_point1);
+
+                struct Vector line_plane_diff = vector_subtract(&line_point, &plane_point);
+                double scale = vector_dot_product(&plane_normal, &line_plane_diff) / plane_line_dot;
+                struct Vector line_direction_scaled = vector_scale(&line_direction, scale);
+                struct Vector intersection = vector_subtract(&line_point, &line_direction_scaled);
+                target_backlight = fmax(1, fmin(100, round(intersection.z)));
+            }
+        }
+
+        if (backlight != target_backlight) {
             struct timespec sleep = { 0 };
             for (
-                int step = backlight < nearest->backlight ? 1 : -1;
-                (step > 0 && backlight <= nearest->backlight) || (step < 0 && backlight >= nearest->backlight);
+                int step = backlight < target_backlight ? 1 : -1;
+                (step > 0 && backlight <= target_backlight) || (step < 0 && backlight >= target_backlight);
                 backlight += step
             ) {
                 pwrite_long(ctx->backlight_raw_fd, backlight * ctx->backlight_max / 100);
@@ -601,7 +717,7 @@ static void update_backlight(struct Context *ctx, long lux, int luma, int backli
                     continue;
                 }
             }
-            backlight = nearest->backlight;
+            backlight = target_backlight;
         }
     }
 
