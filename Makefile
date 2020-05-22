@@ -27,7 +27,7 @@ install:
 	install -Dm644 -t "$(SHARE_DIR)/doc/$(BIN)/" README.md
 
 .PHONY: dist
-dist:
+dist: clean
 	mkdir -p dist
 	git archive -o "dist/$(BIN)-$(VERSION).tar.gz" --format tar.gz --prefix "$(BIN)-$(VERSION)/" "$(VERSION)"
 	gpg --detach-sign --armor "dist/$(BIN)-$(VERSION).tar.gz"
