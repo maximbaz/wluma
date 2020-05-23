@@ -21,6 +21,9 @@
 #define BACKLIGHT_TRANSITION_DELAY_NS (200 * 1000000L)
 #define PENDING_COUNTDOWN_RESET       15
 #define AVG_LUX_WINDOW_SIZE           10
+#define BUF_SIZE                      1024
+
+static char buf[BUF_SIZE];
 
 struct Vector {
     double x, y, z;
@@ -120,15 +123,15 @@ struct Context {
  */
 
 static double pread_double(int fd) {
-    char buf[50];
-    if (pread(fd, buf, 50, 0) < 0) {
+    int count = pread(fd, buf, BUF_SIZE, 0);
+    if (count < 1) {
         return -1;
     }
+    buf[count] = 0;
     return strtod(buf, NULL);
 }
 
 static void pwrite_long(int fd, long val) {
-    char buf[50];
     int len = sprintf(buf, "%ld", val);
     ftruncate(fd, 0);
     pwrite(fd, buf, len, 0);
@@ -267,7 +270,6 @@ static void data_save(struct Context *ctx) {
     ftruncate(ctx->data_fd, 0);
     lseek(ctx->data_fd, 0, SEEK_SET);
 
-    char buf[150];
     struct DataPoint *elem = ctx->data;
     while (elem) {
         int len = sprintf(buf, "%ld %d %d\n", elem->lux, elem->luma, elem->backlight);
@@ -282,12 +284,11 @@ static bool data_load(struct Context *ctx) {
         return false;
     }
 
-    char line[150];
-    while (fgets(line, 150, f)) {
+    while (fgets(buf, BUF_SIZE, f)) {
         long val[3];
         char *word = NULL;
         for (int i=0; i<3; i++) {
-            word = strtok(word == NULL ? line : NULL, " ");
+            word = strtok(word == NULL ? buf : NULL, " ");
             if (word == NULL) {
                 return false;
             }
@@ -907,7 +908,6 @@ static int main_loop(struct Context *ctx) {
  * Initialize Wayland client and Vulkan API
  */
 static int init(struct Context *ctx, int argc, char *argv[]) {
-    char buf[1024];
     int fd;
     DIR *dir;
     struct dirent *subdir;
@@ -959,7 +959,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
         sprintf(buf, "%s/%s/name", light_sensor_raw_base_path, subdir->d_name);
         fd = open(buf, O_RDONLY);
         if (fd > 0) {
-            int count = fmax(1, read(fd, buf, sizeof(buf)));
+            int count = fmax(0, read(fd, buf, BUF_SIZE));
             buf[count] = 0;
             buf[strcspn(buf, "\n")] = 0;
             close(fd);
@@ -1056,7 +1056,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
     VkApplicationInfo appInfo = {
         .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName   = "wluma",
-        .applicationVersion = VK_MAKE_VERSION(1, 2, 0),
+        .applicationVersion = VK_MAKE_VERSION(1, 2, 1),
         .pEngineName        = "No Engine",
         .engineVersion      = VK_MAKE_VERSION(1, 0, 0),
         .apiVersion         = VK_API_VERSION_1_0,

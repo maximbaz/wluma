@@ -1,7 +1,7 @@
 project(
     'wluma',
     'c',
-    version: '1.2.0',
+    version: '1.2.1',
     license: 'MIT',
     default_options: [
         'buildtype=release',

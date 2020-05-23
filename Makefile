@@ -1,5 +1,5 @@
 BIN := wluma
-VERSION := 1.2.0
+VERSION := 1.2.1
 
 PREFIX ?= /usr
 LIB_DIR = $(DESTDIR)$(PREFIX)/lib
