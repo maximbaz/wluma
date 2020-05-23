@@ -911,7 +911,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
     int fd;
     DIR *dir;
     struct dirent *subdir;
-    char *light_sensor_raw_base_path = get_env("WLUMA_LIGHT_SENSOR_BASE_PATH", "/sys/bus/iio/devices");
+    char *light_sensor_raw_base_path = get_env("WLUMA_AMBIENT_LIGHT_SENSOR_BASE_PATH", "/sys/bus/iio/devices");
 
     char *backlight_raw_base_path = "/sys/class/backlight";
     dir = opendir(backlight_raw_base_path);
