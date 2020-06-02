@@ -621,10 +621,12 @@ exit:
 
 static void update_backlight(struct Context *ctx, long lux, int luma, int backlight) {
     if ((ctx->backlight_last != backlight) || (ctx->data == NULL && ctx->pendingCountdown == 0)) {
-        ctx->pendingCountdown = PENDING_COUNTDOWN_RESET;
-        ctx->pendingDataPoint.lux = lux;
-        ctx->pendingDataPoint.luma = luma;
+        if (ctx->pendingCountdown == 0) {
+            ctx->pendingDataPoint.lux = lux;
+            ctx->pendingDataPoint.luma = luma;
+        }
         ctx->pendingDataPoint.backlight = backlight;
+        ctx->pendingCountdown = PENDING_COUNTDOWN_RESET;
     } else if (ctx->pendingCountdown > 1) {
         ctx->pendingCountdown--;
     } else if (ctx->pendingCountdown == 1) {
