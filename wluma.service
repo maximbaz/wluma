@@ -1,5 +1,7 @@
 [Unit]
 Description=Adjusting screen brightness based on screen contents and amount of ambient light
+PartOf=graphical-session.target
+After=graphical-session.target
 
 [Service]
 ExecStart=/usr/bin/wluma
@@ -7,4 +9,4 @@ Restart=always
 EnvironmentFile=-%E/wluma/service.conf
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
