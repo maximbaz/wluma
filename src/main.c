@@ -22,6 +22,7 @@
 #define PENDING_COUNTDOWN_RESET       15
 #define AVG_LUX_WINDOW_SIZE           10
 #define BUF_SIZE                      1024
+#define LAST_MIP_LEVEL                4
 
 static char buf[BUF_SIZE];
 
@@ -515,8 +516,9 @@ static int compute_frame_luma_pct(struct Context *ctx) {
     imageBarrier.subresourceRange.levelCount = 1;
     uint32_t mipWidth  = ctx->frame->width / 2;
     uint32_t mipHeight = ctx->frame->height / 2;
+    uint32_t targetMipLevel = ctx->vulkan_frame->mip_levels - LAST_MIP_LEVEL;
 
-    for (uint32_t i = 1; i < ctx->vulkan_frame->mip_levels; i++) {
+    for (uint32_t i = 1; i <= targetMipLevel; i++) {
         imageBarrier.subresourceRange.baseMipLevel = i - 1;
         imageBarrier.oldLayout                     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         imageBarrier.newLayout                     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -544,7 +546,7 @@ static int compute_frame_luma_pct(struct Context *ctx) {
         if (mipHeight > 1) mipHeight /= 2;
     }
 
-    imageBarrier.subresourceRange.baseMipLevel = ctx->vulkan_frame->mip_levels - 1;
+    imageBarrier.subresourceRange.baseMipLevel = targetMipLevel;
     imageBarrier.oldLayout                     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     imageBarrier.newLayout                     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     imageBarrier.srcAccessMask                 = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -561,11 +563,11 @@ static int compute_frame_luma_pct(struct Context *ctx) {
         .bufferRowLength                 = 0,
         .bufferImageHeight               = 0,
         .imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-        .imageSubresource.mipLevel       = ctx->vulkan_frame->mip_levels - 1,
+        .imageSubresource.mipLevel       = targetMipLevel,
         .imageSubresource.baseArrayLayer = 0,
         .imageSubresource.layerCount     = 1,
         .imageOffset                     = { 0, 0, 0 },
-        .imageExtent                     = { 1, 1, 1 },
+        .imageExtent                     = { mipWidth, mipHeight, 1 },
     };
 
     vkCmdCopyImageToBuffer(ctx->vulkan->command_buffer, ctx->vulkan_frame->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ctx->vulkan->buffer, 1, &region);
@@ -597,7 +599,15 @@ static int compute_frame_luma_pct(struct Context *ctx) {
         goto exit;
     }
 
-    unsigned char r = rgba[0], g = rgba[1], b = rgba[2];
+    int rgbSum[] = { 0, 0, 0 };
+    int totalPixels = mipWidth * mipHeight;
+    for (int i = 0; i < totalPixels; i++) {
+        rgbSum[0] += rgba[4 * i + 0];
+        rgbSum[1] += rgba[4 * i + 1];
+        rgbSum[2] += rgba[4 * i + 2];
+    }
+    int r = rgbSum[0] / totalPixels, g = rgbSum[1] / totalPixels, b = rgbSum[2] / totalPixels;
+
     result = sqrt(0.241 * (double)(r * r) + 0.691 * (double)(g * g) + 0.068 * (double)(b * b)) / 255.0 * 100.0;
 
     vkUnmapMemory(ctx->vulkan->device, ctx->vulkan->buffer_memory);
@@ -1141,7 +1151,7 @@ static int init(struct Context *ctx, int argc, char *argv[]) {
 
     VkBufferCreateInfo bufferInfo = {
         .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size        = 4, // 1 byte per RGBA
+        .size        = 4 * 500, // 1 byte per RGBA * 500 pixels (should be more than enough)
         .usage       = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
