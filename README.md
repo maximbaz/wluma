@@ -2,6 +2,10 @@
 
 A tool for wlroots-based compositors that automatically adjusts screen brightness based on the screen contents and amount of ambient light around you.
 
+## IMPORTANT NOTICE
+
+Rust rewrite is in progress. No compatibility with v1 is promised. The goal is to have a highly modular app, able to be extended for different devices and potentially compositors or even OS.
+
 ## Idea
 
 The app will automatically brighten the screen when you are looking at a dark window (such as a fullscreen terminal) and darken the screen when you are looking at a bright window (such as web browser). The algorithm takes into consideration the amount of ambient light around you, so the same window can be brighter during the day than during the night.
@@ -28,17 +32,10 @@ Alternatively, build using `make build` and install via `sudo make install`.
 
 To run the app, simply launch `wluma` or use the provided systemd user service.
 
-## Strategies other than ambient light sensor
-
-By default `wluma` uses ambient light sensor device to decide the best brightness value. If your laptop doesn't have this sensor, or if you simply want to use other strategies to distinguish day from night, you can use environment variable `WLUMA_AMBIENT_LIGHT_SENSOR_BASE_PATH` to point `wluma` to a different strategy.
-
-See [wluma-als-emulator](https://github.com/cyrinux/wluma-als-emulator) project for more details of how this can be used.
-
 ## Caveats
 
 - Current drivers do not support importing images with custom DRM modifiers, this work [is being done in mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/1466). Until then, the only workaround is to use `WLR_DRM_NO_MODIFIERS=1` from wlroots.
 
 ## Relevant projects
 
-- [wluma-als-emulator](https://github.com/cyrinux/wluma-als-emulator): emulate ambient light sensor using a webcam or time of the day
 - [lumen](https://github.com/anishathalye/lumen): project that inspired me to create this app

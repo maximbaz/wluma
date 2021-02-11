@@ -1,5 +1,5 @@
 BIN := wluma
-VERSION := 1.2.2
+VERSION := 2.0.0
 
 PREFIX ?= /usr
 LIB_DIR = $(DESTDIR)$(PREFIX)/lib
@@ -7,21 +7,20 @@ BIN_DIR = $(DESTDIR)$(PREFIX)/bin
 SHARE_DIR = $(DESTDIR)$(PREFIX)/share
 
 .PHONY: run
-run: build
-	build/$(BIN)
+run:
+	cargo run
 
 .PHONY: build
 build:
-	meson build
-	ninja -C build
+	cargo build
 
 .PHONY: clean
 clean:
-	rm -rf build dist
+	rm -rf target dist
 
 .PHONY: install
 install:
-	install -Dm755 -t "$(BIN_DIR)/" build/$(BIN)
+	install -Dm755 -t "$(BIN_DIR)/" target/release/$(BIN)
 	install -Dm644 -t "$(LIB_DIR)/systemd/user" "$(BIN).service"
 	install -Dm644 -t "$(SHARE_DIR)/licenses/$(BIN)/" LICENSE
 	install -Dm644 -t "$(SHARE_DIR)/doc/$(BIN)/" README.md

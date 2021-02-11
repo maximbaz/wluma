@@ -1,0 +1,27 @@
+display = "wayland"
+
+[screen_contents]
+capturer = "wlroots"
+processor = "vulkan"
+
+# [als.iio]
+# path = "/sys/bus/iio/devices"
+
+[als.none]
+
+# [als.time]
+# hour_to_lux = { 0 = 0, 1 = 0, 2 = 0, 3 = 0, 4 = 0, 5 = 1, 6 = 2, 7 = 3, 8 = 4, 9 = 5, 10 = 6, 11 = 7, 12 = 7, 13 = 7, 14 = 7, 15 = 6, 16 = 5, 17 = 4, 18 = 3, 19 = 2, 20 = 1, 21 = 0, 22 = 0, 23 = 0 }
+
+[output.backlight.eDP-1]
+path = "/sys/class/backlight/intel_backlight"
+use_contents = true
+
+# [output.ddcutil.DP-1]
+# display = 1
+# use_contents = false
+
+[keyboard.backlight.dell]
+path = "/sys/bus/platform/devices/dell-laptop/leds/dell::kbd_backlight"
+
+# [keyboard.backlight.thinkpad]
+# path = "/sys/bus/platform/devices/thinkpad_acpi/leds/tpacpi::kbd_backlight"
