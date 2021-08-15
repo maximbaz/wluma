@@ -1,9 +1,11 @@
+use mockall::*;
 use std::error::Error;
 
 pub mod iio;
 pub mod none;
 pub mod time;
 
+#[automock]
 pub trait Als {
     fn get_raw(&self) -> Result<f64, Box<dyn Error>>;
 

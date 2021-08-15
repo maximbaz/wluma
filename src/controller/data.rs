@@ -10,7 +10,7 @@ pub struct Data {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Entry {
     pub lux: u64,
-    pub luma: u8,
+    pub luma: Option<u8>,
     pub brightness: u64,
 }
 
@@ -32,5 +32,15 @@ impl Data {
             .write(true)
             .read(true)
             .open(path)?)
+    }
+}
+
+impl Entry {
+    pub fn new(lux: u64, luma: Option<u8>, brightness: u64) -> Self {
+        Self {
+            lux,
+            luma,
+            brightness,
+        }
     }
 }

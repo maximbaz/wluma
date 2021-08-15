@@ -1,10 +1,10 @@
-use backlight::Backlight;
+use brightness::Backlight;
 use config::Config;
 use controller::Controller;
 use frame::wlroots::Wlroots;
 
 mod als;
-mod backlight;
+mod brightness;
 mod config;
 mod controller;
 mod device_file;
@@ -33,8 +33,8 @@ fn main() {
         config::Capturer::None => Box::new(frame::none::Capturer::default()),
     };
 
-    let brightness = Backlight::new("/sys/class/backlight/intel_backlight").unwrap();
-    let controller = Controller::new(brightness, als);
+    let brightness = Box::new(Backlight::new("/sys/class/backlight/intel_backlight").unwrap());
+    let controller = Controller::new(brightness, als, true);
 
     println!("Continue adjusting brightness and wluma will learn your preference over time.");
     frame_capturer.run(controller);

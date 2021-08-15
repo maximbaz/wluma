@@ -26,12 +26,14 @@ impl Backlight {
             max_brightness,
         })
     }
+}
 
-    pub fn get(&self) -> Result<u64, Box<dyn Error>> {
+impl super::Brightness for Backlight {
+    fn get(&self) -> Result<u64, Box<dyn Error>> {
         Ok(read(&mut self.file.borrow_mut())? as u64)
     }
 
-    pub fn set(&self, value: u64) -> Result<(), Box<dyn Error>> {
+    fn set(&self, value: u64) -> Result<(), Box<dyn Error>> {
         write(
             &mut self.file.borrow_mut(),
             value.max(1).min(self.max_brightness) as f64,

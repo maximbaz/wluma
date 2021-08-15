@@ -1,7 +1,7 @@
 use crate::als::Als;
+use crate::brightness::Brightness;
 use crate::controller::data::{Data, Entry};
 use crate::controller::kalman::Kalman;
-use crate::Backlight;
 use itertools::Itertools;
 use nalgebra as na;
 use std::cmp::Ordering::Equal;
@@ -15,18 +15,25 @@ const TRANSITION_SPEED: u64 = 200;
 const PENDING_COOLDOWN_RESET: u8 = 15;
 
 pub struct Controller {
-    brightness: Backlight,
+    brightness: Box<dyn Brightness>,
     als: Box<dyn Als>,
     kalman: Kalman,
     last_brightness: u64,
     pending_cooldown: u8,
     pending: Option<Entry>,
-    data: Data,
     lux_max_seen: f64,
+    data: Data,
+    stateful: bool,
 }
 
 impl Controller {
-    pub fn new(brightness: Backlight, als: Box<dyn Als>) -> Self {
+    pub fn new(brightness: Box<dyn Brightness>, als: Box<dyn Als>, stateful: bool) -> Self {
+        let data = if stateful {
+            Data::load().unwrap_or_default()
+        } else {
+            Data::default()
+        };
+
         Self {
             brightness,
             als,
@@ -34,8 +41,9 @@ impl Controller {
             last_brightness: 0,
             pending_cooldown: 0,
             pending: None,
-            data: Data::load().unwrap_or_default(),
             lux_max_seen: 1.0,
+            data,
+            stateful,
         }
     }
 
@@ -48,45 +56,41 @@ impl Controller {
             return Ok(());
         }
 
-        let brightness_changed = self.last_brightness != brightness;
-        let no_data_points = self.data.entries.is_empty() && self.pending_cooldown == 0;
-
-        self.last_brightness = if brightness_changed || no_data_points {
-            self.init_user_changed_brightness(lux, luma, brightness)
-        } else if self.pending_cooldown > 1 {
-            self.cooldown_user_changed_brightness(brightness)
-        } else if self.pending_cooldown == 1 {
-            self.commit_user_changed_brightness(brightness)
-        } else {
-            self.predict_set_brightness(lux, luma, brightness)
-        };
+        self.process(lux, luma, brightness);
 
         Ok(())
     }
 
-    fn init_user_changed_brightness(&mut self, lux: u64, luma: Option<u8>, brightness: u64) -> u64 {
-        if self.pending_cooldown == 0 {
-            self.pending = Some(Entry {
-                lux,
-                luma: luma.unwrap(),
-                brightness,
-            });
+    fn process(&mut self, lux: u64, luma: Option<u8>, brightness: u64) {
+        let user_changed_brightness = self.last_brightness != brightness;
+        let no_data_points = self.data.entries.is_empty() && self.pending.is_none();
+
+        self.last_brightness = brightness;
+
+        if user_changed_brightness || no_data_points {
+            if self.pending.is_none() {
+                // First time we notice user adjusting brightness, freeze lux and luma...
+                self.pending = Some(Entry::new(lux, luma, brightness));
+            } else {
+                // ... but as user keeps changing brightness,
+                // allow some time for them to reach the desired brightness level for a given lux and luma
+                self.pending.as_mut().unwrap().brightness = brightness;
+            }
+            // Every time user changed brightness, reset the cooldown period
+            self.pending_cooldown = PENDING_COOLDOWN_RESET;
+        } else if self.pending_cooldown > 0 {
+            self.pending_cooldown -= 1;
+        } else if self.pending.is_some() {
+            self.learn();
         } else {
-            self.pending.as_mut().unwrap().brightness = brightness;
+            let desired_brightness = self.predict(lux, luma);
+            self.change_brightness(brightness, desired_brightness);
+            self.last_brightness = desired_brightness;
         }
-        self.pending_cooldown = PENDING_COOLDOWN_RESET;
-        brightness
     }
 
-    fn cooldown_user_changed_brightness(&mut self, brightness: u64) -> u64 {
-        self.pending_cooldown -= 1;
-        brightness
-    }
-
-    fn commit_user_changed_brightness(&mut self, brightness: u64) -> u64 {
-        self.pending_cooldown = 0;
-
-        let pending = self.pending.take().unwrap();
+    fn learn(&mut self) {
+        let pending = self.pending.take().expect("No pending entry to learn");
         self.lux_max_seen = self.lux_max_seen.max(pending.lux as f64);
 
         self.data.entries.retain(|elem| {
@@ -106,14 +110,14 @@ impl Controller {
                     && elem.brightness > pending.brightness))
         });
 
-        self.data.entries.push(pending); // TODO investigate derive Copy
+        self.data.entries.push(pending);
 
-        self.data.save().expect("Unable to save data to a file");
-
-        brightness
+        if self.stateful {
+            self.data.save().expect("Unable to save data");
+        }
     }
 
-    fn predict_set_brightness(&mut self, lux: u64, luma: Option<u8>, brightness: u64) -> u64 {
+    fn predict(&mut self, lux: u64, luma: Option<u8>) -> u64 {
         let lux_f = lux as f64;
         let luma_f = luma.unwrap() as f64;
 
@@ -125,9 +129,13 @@ impl Controller {
             .iter()
             .map(|elem| {
                 let dist_lux = (lux_capped - elem.lux as f64) * 100.0 / self.lux_max_seen;
-                let dist_luma = luma_f - elem.luma as f64;
+                let dist_luma = luma_f - elem.luma.unwrap() as f64;
                 let dist = (dist_lux.powf(2.0) + dist_luma.powf(2.0)).sqrt();
-                let point = (elem.lux as f64, elem.luma as f64, elem.brightness as f64);
+                let point = (
+                    elem.lux as f64,
+                    elem.luma.unwrap() as f64,
+                    elem.brightness as f64,
+                );
 
                 (point, dist)
             })
@@ -168,13 +176,14 @@ impl Controller {
             }
         }
 
-        if brightness != target_value {
-            self.change_brightness(brightness, target_value);
-        }
         target_value
     }
 
     fn change_brightness(&self, mut last_value: u64, value: u64) {
+        if last_value == value {
+            return;
+        }
+
         let diff = max(value, last_value) - min(value, last_value);
         let dir = if last_value < value { 1 } else { -1 };
         let (step, sleep) = if diff >= TRANSITION_SPEED {
@@ -189,5 +198,79 @@ impl Controller {
             last_value = new_value;
             thread::sleep(Duration::from_millis(sleep));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::als::MockAls;
+    use crate::brightness::MockBrightness;
+
+    #[test]
+    fn test_process_first_user_change() {
+        let mut controller = Controller::new(
+            Box::new(MockBrightness::new()),
+            Box::new(MockAls::new()),
+            false,
+        );
+
+        // User changes brightness to value 33 for a given lux and luma
+        controller.process(12345, Some(66), 33);
+
+        assert_eq!(33, controller.last_brightness);
+        assert_eq!(Some(Entry::new(12345, Some(66), 33)), controller.pending);
+        assert_eq!(PENDING_COOLDOWN_RESET, controller.pending_cooldown);
+    }
+
+    #[test]
+    fn test_process_several_continuous_user_changes() {
+        let mut controller = Controller::new(
+            Box::new(MockBrightness::new()),
+            Box::new(MockAls::new()),
+            false,
+        );
+
+        // User initiates brightness change for a given lux and luma to value 33...
+        controller.process(12345, Some(66), 33);
+        // then quickly continues increasing it to 34 (while lux and luma might already be different)...
+        controller.process(23456, Some(36), 34);
+        // and once again increases to 35 (which is the indended brightness value they wish to learn for the initial lux and luma)
+        controller.process(100, Some(16), 35);
+
+        assert_eq!(35, controller.last_brightness);
+        assert_eq!(Some(Entry::new(12345, Some(66), 35)), controller.pending);
+        assert_eq!(PENDING_COOLDOWN_RESET, controller.pending_cooldown);
+    }
+
+    #[test]
+    fn test_process_learns_user_change_after_cooldown() {
+        let mut controller = Controller::new(
+            Box::new(MockBrightness::new()),
+            Box::new(MockAls::new()),
+            false,
+        );
+
+        // User changes brightness to a desired value
+        controller.process(12345, Some(66), 33);
+        controller.process(23456, Some(36), 34);
+        controller.process(100, Some(16), 35);
+
+        for i in 1..=PENDING_COOLDOWN_RESET {
+            // User doesn't change brightness anymore, so even if lux or luma change, we are in cooldown period
+            controller.process(100 + i as u64, Some(i), 35);
+            assert_eq!(PENDING_COOLDOWN_RESET - i, controller.pending_cooldown);
+            assert_eq!(Some(Entry::new(12345, Some(66), 35)), controller.pending);
+        }
+
+        // One final process will trigger the learning
+        controller.process(200, Some(17), 35);
+
+        assert_eq!(None, controller.pending);
+        assert_eq!(0, controller.pending_cooldown);
+        assert_eq!(
+            vec![Entry::new(12345, Some(66), 35)],
+            controller.data.entries
+        );
     }
 }

@@ -10,6 +10,10 @@ SHARE_DIR = $(DESTDIR)$(PREFIX)/share
 build:
 	cargo build
 
+.PHONY: test
+test:
+	cargo test
+
 .PHONY: run
 run:
 	cargo run
