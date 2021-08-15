@@ -1,12 +1,12 @@
 use crate::als::Als;
+use crate::controller::data::{Data, Entry};
+use crate::controller::kalman::Kalman;
 use crate::Backlight;
 use itertools::Itertools;
 use nalgebra as na;
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering::Equal;
 use std::cmp::{max, min};
 use std::error::Error;
-use std::fs::{File, OpenOptions};
 use std::ops::Sub;
 use std::thread;
 use std::time::Duration;
@@ -14,33 +14,18 @@ use std::time::Duration;
 const TRANSITION_SPEED: u64 = 200;
 const PENDING_COOLDOWN_RESET: u8 = 15;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-struct Data {
-    lux: u64,
-    luma: u8,
-    brightness: u64,
-}
-
-struct Kalman {
-    steps: u64,
-    q: f64,
-    r: f64,
-    value: Option<f64>,
-    covariance: f64,
-}
-
-pub struct BrightnessController {
+pub struct Controller {
     brightness: Backlight,
     als: Box<dyn Als>,
     kalman: Kalman,
     last_brightness: u64,
     pending_cooldown: u8,
-    pending: Option<Data>,
-    data: Vec<Data>,
+    pending: Option<Entry>,
+    data: Data,
     lux_max_seen: f64,
 }
 
-impl BrightnessController {
+impl Controller {
     pub fn new(brightness: Backlight, als: Box<dyn Als>) -> Self {
         Self {
             brightness,
@@ -64,7 +49,7 @@ impl BrightnessController {
         }
 
         let brightness_changed = self.last_brightness != brightness;
-        let no_data_points = self.data.is_empty() && self.pending_cooldown == 0;
+        let no_data_points = self.data.entries.is_empty() && self.pending_cooldown == 0;
 
         self.last_brightness = if brightness_changed || no_data_points {
             self.init_user_changed_brightness(lux, luma, brightness)
@@ -81,7 +66,7 @@ impl BrightnessController {
 
     fn init_user_changed_brightness(&mut self, lux: u64, luma: Option<u8>, brightness: u64) -> u64 {
         if self.pending_cooldown == 0 {
-            self.pending = Some(Data {
+            self.pending = Some(Entry {
                 lux,
                 luma: luma.unwrap(),
                 brightness,
@@ -104,7 +89,7 @@ impl BrightnessController {
         let pending = self.pending.take().unwrap();
         self.lux_max_seen = self.lux_max_seen.max(pending.lux as f64);
 
-        self.data.retain(|elem| {
+        self.data.entries.retain(|elem| {
             !((elem.lux == pending.lux && elem.luma == pending.luma)
                 || (elem.lux > pending.lux && elem.luma == pending.luma)
                 || (elem.lux < pending.lux
@@ -121,9 +106,9 @@ impl BrightnessController {
                     && elem.brightness > pending.brightness))
         });
 
-        self.data.push(pending); // TODO investigate derive Copy
+        self.data.entries.push(pending); // TODO investigate derive Copy
 
-        Data::save(&self.data).expect("Unable to save data to a file");
+        self.data.save().expect("Unable to save data to a file");
 
         brightness
     }
@@ -136,6 +121,7 @@ impl BrightnessController {
 
         let nearest = self
             .data
+            .entries
             .iter()
             .map(|elem| {
                 let dist_lux = (lux_capped - elem.lux as f64) * 100.0 / self.lux_max_seen;
@@ -203,59 +189,5 @@ impl BrightnessController {
             last_value = new_value;
             thread::sleep(Duration::from_millis(sleep));
         }
-    }
-}
-
-impl Data {
-    fn file() -> Result<File, Box<dyn Error>> {
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("wluma")?;
-        let path = xdg_dirs.place_data_file("data.yaml")?;
-
-        Ok(OpenOptions::new()
-            .create(true)
-            .write(true)
-            .read(true)
-            .open(path)?)
-    }
-
-    fn load() -> Result<Vec<Data>, Box<dyn Error>> {
-        Ok(serde_yaml::from_reader(Self::file()?)?)
-    }
-
-    fn save(data: &Vec<Self>) -> Result<(), Box<dyn Error>> {
-        Ok(serde_yaml::to_writer(Self::file()?, data)?)
-    }
-}
-
-impl Kalman {
-    pub fn new(q: f64, r: f64, covariance: f64) -> Kalman {
-        Kalman {
-            steps: 0,
-            q,
-            r,
-            value: None,
-            covariance,
-        }
-    }
-    pub fn process(&mut self, input: f64) -> f64 {
-        self.steps += 1;
-        match self.value {
-            None => {
-                self.value = Some(input);
-                input
-            }
-            Some(x0) => {
-                let p0 = self.covariance + self.q;
-                let k = p0 / (p0 + self.r);
-                let x1 = x0 + k * (input - x0);
-                let cov = (1.0 - k) * p0;
-                self.value = Some(x1);
-                self.covariance = cov;
-                x1
-            }
-        }
-    }
-    pub fn initialized(&self) -> bool {
-        self.steps > 10
     }
 }

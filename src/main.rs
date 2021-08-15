@@ -1,6 +1,6 @@
 use backlight::Backlight;
 use config::Config;
-use controller::BrightnessController;
+use controller::Controller;
 use frame::wlroots::Wlroots;
 
 mod als;
@@ -34,7 +34,7 @@ fn main() {
     };
 
     let brightness = Backlight::new("/sys/class/backlight/intel_backlight").unwrap();
-    let controller = BrightnessController::new(brightness, als);
+    let controller = Controller::new(brightness, als);
 
     println!("Continue adjusting brightness and wluma will learn your preference over time.");
     frame_capturer.run(controller);

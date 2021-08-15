@@ -1,4 +1,4 @@
-use crate::controller::BrightnessController;
+use crate::controller::Controller;
 use crate::frame::object::Object;
 use crate::frame::Capturer;
 use crate::vulkan::Vulkan;
@@ -23,7 +23,7 @@ pub struct Wlroots {
 }
 
 impl Capturer for Wlroots {
-    fn run(&self, controller: BrightnessController) {
+    fn run(&self, controller: Controller) {
         Rc::new(self.clone()).capture_frame(Rc::new(RefCell::new(controller)));
 
         loop {
@@ -60,7 +60,7 @@ impl Wlroots {
         }
     }
 
-    fn capture_frame(self: Rc<Self>, controller: Rc<RefCell<BrightnessController>>) {
+    fn capture_frame(self: Rc<Self>, controller: Rc<RefCell<Controller>>) {
         let mut frame = Object::default();
 
         self.dmabuf_manager
