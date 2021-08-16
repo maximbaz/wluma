@@ -7,7 +7,7 @@ pub struct Data {
     pub entries: Vec<Entry>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)]
 pub struct Entry {
     pub lux: u64,
     pub luma: Option<u8>,

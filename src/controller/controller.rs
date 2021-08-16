@@ -2,10 +2,12 @@ use crate::als::Als;
 use crate::brightness::Brightness;
 use crate::controller::data::{Data, Entry};
 use crate::controller::kalman::Kalman;
+use itertools::iproduct;
 use itertools::Itertools;
 use nalgebra as na;
 use std::cmp::Ordering::Equal;
 use std::cmp::{max, min};
+use std::collections::HashSet;
 use std::error::Error;
 use std::ops::Sub;
 use std::thread;
@@ -93,21 +95,48 @@ impl Controller {
         let pending = self.pending.take().expect("No pending entry to learn");
         self.lux_max_seen = self.lux_max_seen.max(pending.lux as f64);
 
-        self.data.entries.retain(|elem| {
-            !((elem.lux == pending.lux && elem.luma == pending.luma)
-                || (elem.lux > pending.lux && elem.luma == pending.luma)
-                || (elem.lux < pending.lux
-                    && elem.luma >= pending.luma
-                    && elem.brightness > pending.brightness)
-                || (elem.lux == pending.lux
-                    && elem.luma < pending.luma
-                    && elem.brightness < pending.brightness)
-                || (elem.lux > pending.lux
-                    && elem.luma <= pending.luma
-                    && elem.brightness < pending.brightness)
-                || (elem.lux == pending.lux
-                    && elem.luma > pending.luma
-                    && elem.brightness > pending.brightness))
+        self.data.entries.retain(|entry| {
+            let darker_env_darker_screen = entry.lux < pending.lux && entry.luma < pending.luma;
+
+            let darker_env_same_screen = entry.lux < pending.lux
+                && entry.luma == pending.luma
+                && entry.brightness <= pending.brightness;
+
+            let darker_env_brighter_screen = entry.lux < pending.lux
+                && entry.luma > pending.luma
+                && entry.brightness <= pending.brightness;
+
+            let same_env_darker_screen = entry.lux == pending.lux
+                && entry.luma < pending.luma
+                && entry.brightness >= pending.brightness;
+
+            let same_env_same_screen = entry.lux == pending.lux
+                && entry.luma == pending.luma
+                && entry.brightness == pending.brightness;
+
+            let same_env_brighter_screen = entry.lux == pending.lux
+                && entry.luma > pending.luma
+                && entry.brightness <= pending.brightness;
+
+            let brighter_env_darker_screen = entry.lux > pending.lux
+                && entry.luma < pending.luma
+                && entry.brightness >= pending.brightness;
+
+            let brighter_env_same_screen = entry.lux > pending.lux
+                && entry.luma == pending.luma
+                && entry.brightness >= pending.brightness;
+
+            let brighter_env_brighter_screen = entry.lux > pending.lux && entry.luma > pending.luma;
+
+            darker_env_darker_screen
+                || darker_env_same_screen
+                || darker_env_brighter_screen
+                || same_env_darker_screen
+                || same_env_same_screen
+                || same_env_brighter_screen
+                || brighter_env_darker_screen
+                || brighter_env_same_screen
+                || brighter_env_brighter_screen
         });
 
         self.data.entries.push(pending);
@@ -207,13 +236,17 @@ mod tests {
     use crate::als::MockAls;
     use crate::brightness::MockBrightness;
 
-    #[test]
-    fn test_process_first_user_change() {
-        let mut controller = Controller::new(
+    fn setup_controller() -> Controller {
+        Controller::new(
             Box::new(MockBrightness::new()),
             Box::new(MockAls::new()),
             false,
-        );
+        )
+    }
+
+    #[test]
+    fn test_process_first_user_change() {
+        let mut controller = setup_controller();
 
         // User changes brightness to value 33 for a given lux and luma
         controller.process(12345, Some(66), 33);
@@ -225,11 +258,7 @@ mod tests {
 
     #[test]
     fn test_process_several_continuous_user_changes() {
-        let mut controller = Controller::new(
-            Box::new(MockBrightness::new()),
-            Box::new(MockAls::new()),
-            false,
-        );
+        let mut controller = setup_controller();
 
         // User initiates brightness change for a given lux and luma to value 33...
         controller.process(12345, Some(66), 33);
@@ -245,11 +274,7 @@ mod tests {
 
     #[test]
     fn test_process_learns_user_change_after_cooldown() {
-        let mut controller = Controller::new(
-            Box::new(MockBrightness::new()),
-            Box::new(MockAls::new()),
-            false,
-        );
+        let mut controller = setup_controller();
 
         // User changes brightness to a desired value
         controller.process(12345, Some(66), 33);
@@ -271,6 +296,65 @@ mod tests {
         assert_eq!(
             vec![Entry::new(12345, Some(66), 35)],
             controller.data.entries
+        );
+    }
+
+    // If user configured brightess value in certain conditions (amount of light around, screen contents),
+    // how changes in environment or screen contents can affect the desired brightness level:
+    //
+    // |                 | darker env      | same env         | brighter env     |
+    // | darker screen   | any             | same or brighter | same or brighter |
+    // | same screen     | same or dimmer  | only same        | same or brighter |
+    // | brighter screen | same or dimmer  | same or dimmer   | any              |
+
+    #[test]
+    fn test_learn_data_cleanup() {
+        let mut controller = setup_controller();
+
+        let pending = Entry::new(10, Some(20), 30);
+
+        let all_combinations: HashSet<_> = iproduct!(-1i32..=1, -1i32..=1, -1i32..=1)
+            .map(|(i, j, k)| Entry::new((10 + i) as u64, Some((20 + j) as u8), (30 + k) as u64))
+            .collect();
+
+        let to_be_deleted: HashSet<_> = vec![
+            // darker env same screen
+            Entry::new(9, Some(20), 31),
+            // darker env brighter screen
+            Entry::new(9, Some(21), 31),
+            // same env darker screen
+            Entry::new(10, Some(19), 29),
+            // same env same screen
+            Entry::new(10, Some(20), 29),
+            Entry::new(10, Some(20), 31),
+            // same env brighter screen
+            Entry::new(10, Some(21), 31),
+            // brighter env darker screen
+            Entry::new(11, Some(19), 29),
+            // brighter env same screen
+            Entry::new(11, Some(20), 29),
+        ]
+        .into_iter()
+        .collect();
+
+        controller.data.entries = all_combinations.iter().cloned().collect_vec();
+        controller.pending = Some(pending);
+
+        controller.learn();
+
+        let to_remain: HashSet<_> = all_combinations.difference(&to_be_deleted).collect();
+        let remained = controller.data.entries.iter().collect();
+
+        assert_eq!(
+            Vec::<&&Entry>::new(),
+            to_remain.difference(&remained).collect_vec(),
+            "unexpected entries were removed"
+        );
+
+        assert_eq!(
+            Vec::<&&Entry>::new(),
+            remained.difference(&to_remain).collect_vec(),
+            "some entries were not removed"
         );
     }
 }
