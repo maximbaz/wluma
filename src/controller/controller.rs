@@ -2,12 +2,10 @@ use crate::als::Als;
 use crate::brightness::Brightness;
 use crate::controller::data::{Data, Entry};
 use crate::controller::kalman::Kalman;
-use itertools::iproduct;
 use itertools::Itertools;
 use nalgebra as na;
 use std::cmp::Ordering::Equal;
 use std::cmp::{max, min};
-use std::collections::HashSet;
 use std::error::Error;
 use std::ops::Sub;
 use std::thread;
@@ -110,10 +108,6 @@ impl Controller {
                 && entry.luma < pending.luma
                 && entry.brightness >= pending.brightness;
 
-            let same_env_same_screen = entry.lux == pending.lux
-                && entry.luma == pending.luma
-                && entry.brightness == pending.brightness;
-
             let same_env_brighter_screen = entry.lux == pending.lux
                 && entry.luma > pending.luma
                 && entry.brightness <= pending.brightness;
@@ -132,7 +126,6 @@ impl Controller {
                 || darker_env_same_screen
                 || darker_env_brighter_screen
                 || same_env_darker_screen
-                || same_env_same_screen
                 || same_env_brighter_screen
                 || brighter_env_darker_screen
                 || brighter_env_same_screen
@@ -235,6 +228,8 @@ mod tests {
     use super::*;
     use crate::als::MockAls;
     use crate::brightness::MockBrightness;
+    use itertools::iproduct;
+    use std::collections::HashSet;
 
     fn setup_controller() -> Controller {
         Controller::new(
@@ -355,6 +350,12 @@ mod tests {
             Vec::<&&Entry>::new(),
             remained.difference(&to_remain).collect_vec(),
             "some entries were not removed"
+        );
+
+        assert_eq!(
+            to_remain.len(),
+            controller.data.entries.len(),
+            "duplicate entries remained"
         );
     }
 }
