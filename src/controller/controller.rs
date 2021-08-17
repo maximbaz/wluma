@@ -3,11 +3,8 @@ use crate::brightness::Brightness;
 use crate::controller::data::{Data, Entry};
 use crate::controller::kalman::Kalman;
 use itertools::Itertools;
-use nalgebra as na;
-use std::cmp::Ordering::Equal;
 use std::cmp::{max, min};
 use std::error::Error;
-use std::ops::Sub;
 use std::thread;
 use std::time::Duration;
 
@@ -140,65 +137,48 @@ impl Controller {
     }
 
     fn predict(&mut self, lux: u64, luma: Option<u8>) -> u64 {
-        let lux_f = lux as f64;
-        let luma_f = luma.unwrap() as f64;
+        if self.data.entries.len() == 0 {
+            return 0;
+        }
 
-        let lux_capped = self.lux_max_seen.min(lux_f);
-
-        let nearest = self
+        let points = self
             .data
             .entries
             .iter()
-            .map(|elem| {
-                let dist_lux = (lux_capped - elem.lux as f64) * 100.0 / self.lux_max_seen;
-                let dist_luma = luma_f - elem.luma.unwrap() as f64;
-                let dist = (dist_lux.powf(2.0) + dist_luma.powf(2.0)).sqrt();
-                let point = (
-                    elem.lux as f64,
-                    elem.luma.unwrap() as f64,
-                    elem.brightness as f64,
-                );
-
-                (point, dist)
+            .map(|entry| {
+                let p1 = lux as f64 - entry.lux as f64;
+                let p2 = luma.unwrap_or(0) as f64 - entry.luma.unwrap_or(0) as f64;
+                let distance = (p1.powf(2.0) + p2.powf(2.0)).sqrt();
+                (entry.brightness as f64, distance)
             })
-            .sorted_by(|(_, a), (_, b)| PartialOrd::partial_cmp(a, b).unwrap_or(Equal))
-            .take(3)
-            .map(|(elem, _)| elem)
             .collect_vec();
 
-        let mut target_value = nearest[0].2 as u64;
+        let points = points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let other_distances: f64 = points[0..i]
+                    .iter()
+                    .chain(&points[i + 1..])
+                    .map(|p| p.1)
+                    .product();
+                (p.0, p.1, other_distances)
+            })
+            .collect_vec();
 
-        if nearest.len() == 3 {
-            let plane_vec1 = na::Vector3::new(
-                nearest[0].0 - nearest[1].0,
-                nearest[0].1 - nearest[1].1,
-                nearest[0].2 - nearest[1].2,
-            );
-            let plane_vec2 = na::Vector3::new(
-                nearest[0].0 - nearest[2].0,
-                nearest[0].1 - nearest[2].1,
-                nearest[0].2 - nearest[2].2,
-            );
+        let distance_denominator: f64 = points
+            .iter()
+            .map(|p| p.1)
+            .combinations(points.len() - 1)
+            .map(|c| c.iter().product::<f64>())
+            .sum();
 
-            let plane_normal = plane_vec1.cross(&plane_vec2).normalize();
+        let prediction: f64 = points
+            .iter()
+            .map(|p| p.0 * p.2 / distance_denominator)
+            .sum();
 
-            let line_point1 = na::Vector3::new(lux_f, luma_f, 0.0);
-            let line_direction = na::Vector3::new(0.0, 0.0, -100.0).normalize();
-
-            let plane_line_dot = plane_normal.dot(&line_direction);
-            if plane_line_dot > 0.0001 {
-                let plane_point = na::Vector3::new(nearest[0].0, nearest[0].1, nearest[0].2);
-                let line_plane_diff = line_point1.sub(&plane_point);
-                let scale = plane_normal.dot(&line_plane_diff) / plane_line_dot;
-
-                let line_direction_scaled = line_direction.scale(scale);
-                let intersection = line_point1.sub(line_direction_scaled);
-
-                target_value = 1.0_f64.max(100.0_f64.min(intersection.z.round())) as u64;
-            }
-        }
-
-        target_value
+        prediction as u64
     }
 
     fn change_brightness(&self, mut last_value: u64, value: u64) {
@@ -357,5 +337,43 @@ mod tests {
             controller.data.entries.len(),
             "duplicate entries remained"
         );
+    }
+
+    #[test]
+    fn test_predict_no_data_points() {
+        let mut controller = setup_controller();
+        controller.data.entries = vec![];
+        // predict() should not be called with no data, but just in case confirm we don't panic
+        assert_eq!(0, controller.predict(10, Some(20)));
+    }
+
+    #[test]
+    fn test_predict_one_data_point() {
+        let mut controller = setup_controller();
+        controller.data.entries = vec![Entry::new(5, Some(10), 15)];
+        assert_eq!(15, controller.predict(10, Some(20)));
+    }
+
+    #[test]
+    fn test_predict_known_conditions() {
+        let mut controller = setup_controller();
+        controller.data.entries = vec![Entry::new(5, Some(10), 15), Entry::new(10, Some(20), 30)];
+        assert_eq!(30, controller.predict(10, Some(20)));
+    }
+
+    #[test]
+    fn test_predict_approximate() {
+        let mut controller = setup_controller();
+        controller.data.entries = vec![
+            Entry::new(5, Some(10), 15),
+            Entry::new(10, Some(20), 30),
+            Entry::new(100, Some(100), 100),
+        ];
+
+        // Approximated using weighted distance to all known points:
+        // dist1 = sqrt((x1 - x2)^2 + (y1 - y2)^2)
+        // weight1 = (1/dist1) / (1/dist1 + 1/dist2 + 1/dist3)
+        // prediction = weight1*brightness1 + weight2*brightness2 + weight3*brightness
+        assert_eq!(44, controller.predict(50, Some(50)));
     }
 }

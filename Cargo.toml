@@ -15,6 +15,5 @@ toml = { git = "https://github.com/johansglock/toml-rs" }
 chrono = "0.4"
 ash = "0.33"
 itertools = "0.10"
-nalgebra = "0.29"
 xdg = "2.2"
 mockall = "0.10"
