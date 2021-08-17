@@ -7,7 +7,7 @@ capturer = "wlroots"
 path = "/sys/bus/iio/devices"
 
 # [als.time]
-# hour_to_lux = { 10 = 1, 13 = 2, 16 = 1, 20 = 0 }
+# hour_to_lux = { 7 = 50, 9 = 100, 11 = 300, 13 = 700, 16 = 300, 18 = 50, 20 = 0 }
 
 # [als.none]
 

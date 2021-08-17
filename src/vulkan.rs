@@ -40,7 +40,7 @@ impl Vulkan {
             // ash::extensions::khr::GetPhysicalDeviceProperties2::name().as_ptr(),
             // ash::extensions::khr::ExternalFenceFd::name().as_ptr(),
             // ];
-            println!("{:?}", vk::KhrExternalMemoryFn::name());
+            // println!("{:?}", vk::KhrExternalMemoryFn::name());
 
             let create_info = vk::InstanceCreateInfo::builder().application_info(&appinfo);
             // .enabled_extension_names(&extensions);
