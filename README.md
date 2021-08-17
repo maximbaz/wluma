@@ -20,9 +20,13 @@ The app has minimal impact on system resources and battery life even though it i
 
 ## Installation
 
-On Arch Linux you can use [wluma](https://aur.archlinux.org/packages/wluma/) package.
+On Arch Linux you can use [wluma](https://aur.archlinux.org/packages/wluma/) or [wluma-git](https://aur.archlinux.org/packages/wluma-git/) packages.
 
 Alternatively, build using `make build` and install via `sudo make install`.
+
+## Permissions
+
+In order to access backlight devices, `wluma` must either run as `root`, or preferrably instead you should add your user to `video` group (and possibly reboot thereafter).
 
 ## Run
 
