@@ -6,13 +6,17 @@ LIB_DIR = $(DESTDIR)$(PREFIX)/lib
 BIN_DIR = $(DESTDIR)$(PREFIX)/bin
 SHARE_DIR = $(DESTDIR)$(PREFIX)/share
 
+.PHONY: build-dev
+build-dev:
+	cargo build
+
 .PHONY: build
 build:
-	cargo build
+	cargo build --locked --release
 
 .PHONY: test
 test:
-	cargo test
+	cargo test --locked
 
 .PHONY: run
 run:
