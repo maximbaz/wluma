@@ -7,8 +7,8 @@ pub struct Als {
 }
 
 impl Als {
-    pub fn new(hour_to_lux: &HashMap<String, u32>) -> Result<Self, Box<dyn Error>> {
-        Ok(Self {
+    pub fn new(hour_to_lux: &HashMap<String, u32>) -> Self {
+        Self {
             hour_to_lux: (0..24)
                 .into_iter()
                 .fold(Vec::<(u32, u32)>::new(), |mut acc, hour| {
@@ -21,7 +21,7 @@ impl Als {
                 })
                 .into_iter()
                 .collect(),
-        })
+        }
     }
 }
 

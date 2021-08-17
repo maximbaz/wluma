@@ -7,10 +7,10 @@ processor = "vulkan"
 [als.iio]
 path = "/sys/bus/iio/devices"
 
-# [als.none]
-
 # [als.time]
 # hour_to_lux = { 10 = 1, 13 = 2, 16 = 1, 20 = 0 }
+
+# [als.none]
 
 [output.backlight.eDP-1]
 path = "/sys/class/backlight/intel_backlight"

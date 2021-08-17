@@ -22,9 +22,7 @@ fn main() {
         config::Als::Iio { ref path } => {
             Box::new(als::iio::Als::new(path).expect("als: unable to initialize IIO sensor"))
         }
-        config::Als::Time { ref hour_to_lux } => Box::new(
-            als::time::Als::new(hour_to_lux).expect("als: unable to parse hour_to_lux config"),
-        ),
+        config::Als::Time { ref hour_to_lux } => Box::new(als::time::Als::new(hour_to_lux)),
         config::Als::None => Box::new(als::none::Als::default()),
     };
 
