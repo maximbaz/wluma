@@ -18,7 +18,6 @@ pub struct Controller {
     last_brightness: u64,
     pending_cooldown: u8,
     pending: Option<Entry>,
-    lux_max_seen: f64,
     data: Data,
     stateful: bool,
 }
@@ -38,7 +37,6 @@ impl Controller {
             last_brightness: 0,
             pending_cooldown: 0,
             pending: None,
-            lux_max_seen: 1.0,
             data,
             stateful,
         }
@@ -88,7 +86,6 @@ impl Controller {
 
     fn learn(&mut self) {
         let pending = self.pending.take().expect("No pending entry to learn");
-        self.lux_max_seen = self.lux_max_seen.max(pending.lux as f64);
 
         self.data.entries.retain(|entry| {
             let darker_env_darker_screen = entry.lux < pending.lux && entry.luma < pending.luma;

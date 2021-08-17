@@ -2,10 +2,6 @@
 
 A tool for wlroots-based compositors that automatically adjusts screen brightness based on the screen contents and amount of ambient light around you.
 
-## IMPORTANT NOTICE
-
-Rust rewrite is in progress. No compatibility with v1 is promised. The goal is to have a highly modular app, able to be extended for different devices and potentially compositors or even OS.
-
 ## Idea
 
 The app will automatically brighten the screen when you are looking at a dark window (such as a fullscreen terminal) and darken the screen when you are looking at a bright window (such as web browser). The algorithm takes into consideration the amount of ambient light around you, so the same window can be brighter during the day than during the night.

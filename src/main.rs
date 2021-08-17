@@ -20,7 +20,7 @@ fn main() {
 
     let als: Box<dyn als::Als> = match config.als {
         config::Als::Iio { ref path } => {
-            Box::new(als::iio::Als::new(path).expect("als: unable to initialize IIO sensor"))
+            Box::new(als::iio::Als::new(path).expect("Unable to initialize ALS IIO sensor"))
         }
         config::Als::Time { ref hour_to_lux } => Box::new(als::time::Als::new(hour_to_lux)),
         config::Als::None => Box::new(als::none::Als::default()),
@@ -31,7 +31,13 @@ fn main() {
         config::Capturer::None => Box::new(frame::none::Capturer::default()),
     };
 
-    let brightness = Box::new(Backlight::new("/sys/class/backlight/intel_backlight").unwrap());
+    let brightness = match config.output.iter().next().unwrap().1 {
+        config::Output::Backlight(cfg) => {
+            Box::new(Backlight::new(&cfg.path).expect("Unable to initialize output backlight"))
+        }
+        _ => unimplemented!("Only backlight-controlled outputs are supported"),
+    };
+
     let controller = Controller::new(brightness, als, true);
 
     println!("Continue adjusting brightness and wluma will learn your preference over time.");

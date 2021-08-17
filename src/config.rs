@@ -4,12 +4,6 @@ use std::fs;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum Display {
-    Wayland,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "lowercase")]
 pub enum Capturer {
     Wlroots,
     None,
@@ -31,8 +25,8 @@ pub struct ScreenContents {
 #[serde(rename_all = "lowercase")]
 pub enum Als {
     Iio { path: String },
-    None,
     Time { hour_to_lux: HashMap<String, u32> },
+    None,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -45,12 +39,14 @@ pub struct OutputByType {
 #[derive(Deserialize, Debug)]
 pub struct BacklightOutput {
     pub path: String,
+    #[serde(default)]
     pub use_contents: bool,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct DdcUtilOutput {
     pub display: u8,
+    #[serde(default)]
     pub use_contents: bool,
 }
 
@@ -73,12 +69,11 @@ pub struct Keyboard {
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
-    pub display: Display,
     pub screen_contents: ScreenContents,
     pub als: Als,
     #[serde(rename = "output")]
     output_by_type: OutputByType,
-    pub keyboard: Keyboards,
+    pub keyboard: Option<Keyboards>,
     #[serde(skip)]
     pub output: HashMap<String, Output>,
 }
@@ -105,15 +100,5 @@ impl Config {
             cfg.output_by_type = OutputByType::default();
             cfg
         })
-    }
-
-    pub fn use_output_contents(&self, name: &str) -> bool {
-        self.output
-            .get(name)
-            .and_then(|o| match o {
-                Output::Backlight(o) => Some(o.use_contents),
-                Output::DdcUtil(o) => Some(o.use_contents),
-            })
-            .unwrap_or(false)
     }
 }
