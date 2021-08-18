@@ -97,7 +97,7 @@ impl Wlroots {
                     data.destroy();
 
                     if reason == CancelReason::Permanent {
-                        eprintln!("Frame was cancelled due to a permanent error");
+                        panic!("Frame was cancelled due to a permanent error");
                     } else {
                         eprintln!("Frame was cancelled due to a temporary error, will try again");
                         thread::sleep(DELAY_FAILURE);
