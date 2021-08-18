@@ -28,6 +28,18 @@ Alternatively, build using `make build` and install via `sudo make install`.
 
 In order to access backlight devices, `wluma` must either run as `root`, or preferrably instead you should add your user to `video` group (and possibly reboot thereafter).
 
+## Configuration
+
+The `config.toml` in repository represents default config values. To change them, copy the file into `$XDG_CONFIG_HOME/wluma/config.toml` and adjust as desired.
+
+### ALS
+
+Choose whether to use a real IIO-based ambient light sensor (`[als.iio]`), a time-based simulation (`[als.time]`) or disable it altogether (`[als.none]`).
+
+`[als.iio]` contains a `thresholds` field, which comes with good default values. It is there to convert a generally exponential lux values into a linear scale to improve the prediction algorithm in `wluma`. A value of `[100, 200]` would mean that a raw lux value of `0..100` would get converted to `0`, a value of `100..200` would get converted to `1`, and `200+` would get converted to `2`.
+
+`[als.time]` contains a `time_to_lux` mapping, which allows you to express how bright or dark it gets as the day passes by. This mode is primarily meant to let people who don't have a real ALS to try the app and get some meaningful results. Use linear smooth lux values, not raw ones - a range of `0..5` is recommended. A mapping of `{ 3 = 1, 7 = 2, 21 = 0 }` means that from `00:00` until `02:59` a value would be `0`, from `03:00` until `06:59` the value would be `2`, from `07:00` until `20:59` the value would be `2`, and finally between `21:00` and `23:59` the value would again be `0`.
+
 ## Run
 
 To run the app, simply launch `wluma` or use the provided systemd user service.

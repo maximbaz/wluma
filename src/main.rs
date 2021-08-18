@@ -13,9 +13,9 @@ fn main() {
     println!("Using config: {:?}", config);
 
     let als: Box<dyn als::Als> = match config.als {
-        config::Als::Iio { ref path } => {
-            Box::new(als::iio::Als::new(path).expect("Unable to initialize ALS IIO sensor"))
-        }
+        config::Als::Iio { path, thresholds } => Box::new(
+            als::iio::Als::new(&path, thresholds).expect("Unable to initialize ALS IIO sensor"),
+        ),
         config::Als::Time { ref hour_to_lux } => Box::new(als::time::Als::new(hour_to_lux)),
         config::Als::None => Box::new(als::none::Als::default()),
     };

@@ -7,9 +7,5 @@ pub mod time;
 
 #[automock]
 pub trait Als {
-    fn get_raw(&self) -> Result<f64, Box<dyn Error>>;
-
-    fn get(&self) -> Result<u64, Box<dyn Error>> {
-        Ok(self.get_raw()?.log10() as u64)
-    }
+    fn get(&self) -> Result<u64, Box<dyn Error>>;
 }

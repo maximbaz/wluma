@@ -24,8 +24,8 @@ pub struct Frame {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Als {
-    Iio { path: String },
-    Time { hour_to_lux: HashMap<String, u32> },
+    Iio { path: String, thresholds: Vec<u64> },
+    Time { hour_to_lux: HashMap<String, u64> },
     None,
 }
 

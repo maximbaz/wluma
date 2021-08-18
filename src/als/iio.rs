@@ -21,10 +21,11 @@ enum SensorType {
 
 pub struct Als {
     sensor: SensorType,
+    thresholds: Vec<u64>,
 }
 
 impl Als {
-    pub fn new(base_path: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(base_path: &str, thresholds: Vec<u64>) -> Result<Self, Box<dyn Error>> {
         Path::new(base_path)
             .read_dir()
             .ok()
@@ -41,12 +42,10 @@ impl Als {
                             .ok()
                     })
             })
-            .map(|sensor| Self { sensor })
+            .map(|sensor| Self { sensor, thresholds })
             .ok_or("No iio device found".into())
     }
-}
 
-impl super::Als for Als {
     fn get_raw(&self) -> Result<f64, Box<dyn Error>> {
         Ok(match self.sensor {
             Illuminance {
@@ -68,6 +67,12 @@ impl super::Als for Als {
     }
 }
 
+impl super::Als for Als {
+    fn get(&self) -> Result<u64, Box<dyn Error>> {
+        Ok(smoothen(self.get_raw()? as u64, &self.thresholds))
+    }
+}
+
 fn parse_illuminance(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
     Ok(Illuminance {
         value: Mutex::new(File::open(path.join("in_illuminance_raw"))?),
@@ -82,4 +87,26 @@ fn parse_intensity(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
         g: Mutex::new(File::open(path.join("in_intensity_green_raw"))?),
         b: Mutex::new(File::open(path.join("in_intensity_blue_raw"))?),
     })
+}
+
+fn smoothen(raw_lux: u64, thresholds: &Vec<u64>) -> u64 {
+    thresholds
+        .iter()
+        .enumerate()
+        .find(|(_, &threshold)| raw_lux < threshold)
+        .map(|(i, _)| i as u64)
+        .unwrap_or(thresholds.len() as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_smoothen() {
+        assert_eq!(0, smoothen(123, &vec![]));
+        assert_eq!(0, smoothen(23, &vec![100, 200]));
+        assert_eq!(1, smoothen(123, &vec![100, 200]));
+        assert_eq!(2, smoothen(223, &vec![100, 200]));
+    }
 }
