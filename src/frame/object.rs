@@ -9,10 +9,6 @@ pub struct Object {
     pub sizes: Vec<u32>,
 }
 
-pub trait ScreenProcessor {
-    fn calculate(&self, frame: &Object) -> u8;
-}
-
 impl Object {
     pub fn set_metadata(&mut self, width: u32, height: u32, num_objects: u32) {
         self.width = width;

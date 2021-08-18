@@ -1,4 +1,4 @@
-[screen_contents]
+[frame]
 processor = "vulkan"
 capturer = "wlroots"
 # capturer = "none" # Does not capture screen contents, just uses ALS to predict ideal screen brightness

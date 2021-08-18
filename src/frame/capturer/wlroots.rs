@@ -1,7 +1,6 @@
 use crate::controller::Controller;
 use crate::frame::object::Object;
-use crate::frame::Capturer;
-use crate::vulkan::Vulkan;
+use crate::frame::processor::Processor;
 use std::{cell::RefCell, rc::Rc, thread, time::Duration};
 use wayland_client::{
     protocol::wl_output::WlOutput, Display as WaylandDisplay, EventQueue, GlobalManager, Main,
@@ -15,14 +14,14 @@ const DELAY_SUCCESS: Duration = Duration::from_millis(100);
 const DELAY_FAILURE: Duration = Duration::from_millis(1000);
 
 #[derive(Clone)]
-pub struct Wlroots {
+pub struct Capturer {
     event_queue: Rc<RefCell<EventQueue>>,
     output: Main<WlOutput>,
     dmabuf_manager: Main<ZwlrExportDmabufManagerV1>,
-    vulkan: Rc<Vulkan>,
+    processor: Rc<dyn Processor>,
 }
 
-impl Capturer for Wlroots {
+impl super::Capturer for Capturer {
     fn run(&self, controller: Controller) {
         Rc::new(self.clone()).capture_frame(Rc::new(RefCell::new(controller)));
 
@@ -35,8 +34,8 @@ impl Capturer for Wlroots {
     }
 }
 
-impl Wlroots {
-    pub fn default() -> Self {
+impl Capturer {
+    pub fn new(processor: Box<dyn Processor>) -> Self {
         let display = WaylandDisplay::connect_to_env().unwrap();
         let mut event_queue = display.create_event_queue();
         let attached_display = display.attach(event_queue.token());
@@ -56,7 +55,7 @@ impl Wlroots {
             event_queue: Rc::new(RefCell::new(event_queue)),
             output,
             dmabuf_manager,
-            vulkan: Rc::new(Vulkan::new().expect("unable to init vulkan")),
+            processor: processor.into(),
         }
     }
 
@@ -84,7 +83,7 @@ impl Wlroots {
                 Event::Ready { .. } => {
                     controller
                         .borrow_mut()
-                        .adjust(self.vulkan.luma_percent(&frame).ok())
+                        .adjust(self.processor.luma_percent(&frame).ok())
                         .expect("TODO");
 
                     data.destroy();

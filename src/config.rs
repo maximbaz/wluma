@@ -16,7 +16,7 @@ pub enum Processor {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct ScreenContents {
+pub struct Frame {
     pub capturer: Capturer,
     pub processor: Processor,
 }
@@ -69,7 +69,7 @@ pub struct Keyboard {
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
-    pub screen_contents: ScreenContents,
+    pub frame: Frame,
     pub als: Als,
     #[serde(rename = "output")]
     output_by_type: OutputByType,

@@ -10,7 +10,7 @@ use std::error::Error;
 use std::ffi::CString;
 use std::ops::Drop;
 
-pub struct Vulkan {
+pub struct Processor {
     _entry: Entry,
     instance: Instance,
     device: Device,
@@ -22,7 +22,7 @@ pub struct Vulkan {
     fence: vk::Fence,
 }
 
-impl Vulkan {
+impl Processor {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         unsafe {
             let app_name = CString::new("wluma")?;
@@ -130,7 +130,7 @@ impl Vulkan {
     }
 }
 
-impl Drop for Vulkan {
+impl Drop for Processor {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
@@ -146,8 +146,8 @@ impl Drop for Vulkan {
     }
 }
 
-impl Vulkan {
-    pub fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
+impl super::Processor for Processor {
+    fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
         unsafe {
             assert_eq!(1, frame.num_objects);
 
