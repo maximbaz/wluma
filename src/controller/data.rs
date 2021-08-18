@@ -24,8 +24,9 @@ impl Data {
     }
 
     fn file() -> Result<File, Box<dyn Error>> {
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("wluma")?;
-        let path = xdg_dirs.place_data_file("data.yaml")?;
+        let path = dirs::data_dir()
+            .ok_or("Unable to get data dir")?
+            .join("wluma/data.yaml");
 
         Ok(OpenOptions::new()
             .create(true)
