@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
+use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub struct Data {
@@ -16,23 +17,33 @@ pub struct Entry {
 
 impl Data {
     pub fn load() -> Result<Data, Box<dyn Error>> {
-        Ok(serde_yaml::from_reader(Self::file()?)?)
+        Ok(serde_yaml::from_reader(Self::read_file()?)?)
     }
 
     pub fn save(&self) -> Result<(), Box<dyn Error>> {
-        Ok(serde_yaml::to_writer(Self::file()?, self)?)
+        Ok(serde_yaml::to_writer(Self::write_file()?, self)?)
     }
 
-    fn file() -> Result<File, Box<dyn Error>> {
-        let path = dirs::data_dir()
-            .ok_or("Unable to get data dir")?
-            .join("wluma/data.yaml");
-
+    fn read_file() -> Result<File, Box<dyn Error>> {
         Ok(OpenOptions::new()
             .create(true)
             .write(true)
             .read(true)
-            .open(path)?)
+            .open(Self::path()?)?)
+    }
+
+    fn write_file() -> Result<File, Box<dyn Error>> {
+        Ok(OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(Self::path()?)?)
+    }
+
+    fn path() -> Result<PathBuf, Box<dyn Error>> {
+        Ok(dirs::data_dir()
+            .ok_or("Unable to get data dir")?
+            .join("wluma/data.yaml"))
     }
 }
 
