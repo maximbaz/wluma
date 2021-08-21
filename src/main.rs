@@ -1,3 +1,5 @@
+use std::sync::mpsc;
+
 mod als;
 mod brightness;
 mod config;
@@ -33,14 +35,27 @@ fn main() {
         config::Capturer::None => Box::new(frame::capturer::none::Capturer::default()),
     };
 
-    let brightness = match config.output.iter().next().unwrap().1 {
-        config::Output::Backlight(cfg) => Box::new(
-            brightness::Backlight::new(&cfg.path).expect("Unable to initialize output backlight"),
-        ),
-        _ => unimplemented!("Only backlight-controlled outputs are supported"),
-    };
+    let (user_tx, user_rx) = mpsc::channel();
+    let (prediction_tx, prediction_rx) = mpsc::channel();
 
-    let controller = controller::Controller::new(brightness, als, true);
+    let config_outputs = config.output.clone();
+
+    std::thread::spawn(move || {
+        let brightness = match config_outputs.iter().next().unwrap().1 {
+            config::Output::Backlight(cfg) => Box::new(
+                brightness::Backlight::new(&cfg.path)
+                    .expect("Unable to initialize output backlight"),
+            ),
+            _ => unimplemented!("Only backlight-controlled outputs are supported"),
+        };
+
+        let mut brightness_controller =
+            brightness::Controller::new(brightness, user_tx, prediction_rx);
+
+        brightness_controller.run().unwrap();
+    });
+
+    let controller = controller::Controller::new(prediction_tx, user_rx, als, true);
 
     println!("Continue adjusting brightness and wluma will learn your preference over time.");
     frame_capturer.run(controller);

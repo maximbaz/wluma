@@ -36,21 +36,21 @@ pub struct OutputByType {
     pub ddcutil: HashMap<String, DdcUtilOutput>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct BacklightOutput {
     pub path: String,
     #[serde(default)]
     pub use_contents: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct DdcUtilOutput {
     pub display: u8,
     #[serde(default)]
     pub use_contents: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub enum Output {
     Backlight(BacklightOutput),
     DdcUtil(DdcUtilOutput),

@@ -33,10 +33,9 @@ impl super::Brightness for Backlight {
         Ok(read(&mut self.file.borrow_mut())? as u64)
     }
 
-    fn set(&self, value: u64) -> Result<(), Box<dyn Error>> {
-        write(
-            &mut self.file.borrow_mut(),
-            value.max(1).min(self.max_brightness) as f64,
-        )
+    fn set(&self, value: u64) -> Result<u64, Box<dyn Error>> {
+        let value = value.max(1).min(self.max_brightness);
+        write(&mut self.file.borrow_mut(), value as f64)?;
+        Ok(value)
     }
 }

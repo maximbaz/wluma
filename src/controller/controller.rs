@@ -1,76 +1,92 @@
 use crate::als::Als;
-use crate::brightness::Brightness;
 use crate::controller::data::{Data, Entry};
 use crate::controller::kalman::Kalman;
 use itertools::Itertools;
-use std::cmp::{max, min};
 use std::error::Error;
-use std::thread;
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-const TRANSITION_SPEED: u64 = 200;
+const INITIAL_BRIGHTNESS_TIMEOUT_SECS: u64 = 2;
 const PENDING_COOLDOWN_RESET: u8 = 15;
 
 pub struct Controller {
-    brightness: Box<dyn Brightness>,
+    prediction_tx: Sender<u64>,
+    user_rx: Receiver<u64>,
     als: Box<dyn Als>,
     kalman: Kalman,
-    last_brightness: u64,
     pending_cooldown: u8,
     pending: Option<Entry>,
     data: Data,
     stateful: bool,
+    initial_brightness: Option<u64>,
 }
 
 impl Controller {
-    pub fn new(brightness: Box<dyn Brightness>, als: Box<dyn Als>, stateful: bool) -> Self {
+    pub fn new(
+        prediction_tx: Sender<u64>,
+        user_rx: Receiver<u64>,
+        als: Box<dyn Als>,
+        stateful: bool,
+    ) -> Self {
         let data = if stateful {
             Data::load().unwrap_or_default()
         } else {
             Data::default()
         };
 
+        // Brightness controller is expected to send the initial value on this channel asap
+        let initial_brightness = user_rx
+            .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
+            .expect("Did not receive initial brightness value in time");
+
+        // If there are no learned entries yet, we will use this as the first data point,
+        // assuming that user is happy with the current brightness settings
+        let initial_brightness = if data.entries.is_empty() {
+            Some(initial_brightness)
+        } else {
+            None
+        };
+
         Self {
-            brightness,
+            prediction_tx,
+            user_rx,
             als,
             kalman: Kalman::new(1., 20., 10.),
-            last_brightness: 0,
             pending_cooldown: 0,
             pending: None,
             data,
             stateful,
+            initial_brightness,
         }
     }
 
     pub fn adjust(&mut self, luma: Option<u8>) -> Result<(), Box<dyn Error>> {
         let lux = self.als.get()?;
         let lux = self.kalman.process(lux as f64).round() as u64; // TODO make Kalman::<u64>
-        let brightness = self.brightness.get().unwrap();
         if !self.kalman.initialized() {
-            self.last_brightness = brightness;
             return Ok(());
         }
 
-        self.process(lux, luma, brightness);
+        self.process(lux, luma);
 
         Ok(())
     }
 
-    fn process(&mut self, lux: u64, luma: Option<u8>, brightness: u64) {
-        let user_changed_brightness = self.last_brightness != brightness;
-        let no_data_points = self.data.entries.is_empty() && self.pending.is_none();
+    fn process(&mut self, lux: u64, luma: Option<u8>) {
+        let user_changed_brightness = self
+            .user_rx
+            .try_iter()
+            .last()
+            .or(self.initial_brightness.take());
 
-        self.last_brightness = brightness;
-
-        if user_changed_brightness || no_data_points {
-            if self.pending.is_none() {
+        if let Some(brightness) = user_changed_brightness {
+            self.pending = match &self.pending {
                 // First time we notice user adjusting brightness, freeze lux and luma...
-                self.pending = Some(Entry::new(lux, luma, brightness));
-            } else {
+                None => Some(Entry::new(lux, luma, brightness)),
                 // ... but as user keeps changing brightness,
-                // allow some time for them to reach the desired brightness level for a given lux and luma
-                self.pending.as_mut().unwrap().brightness = brightness;
-            }
+                // allow some time for them to reach the desired brightness level for the pending lux and luma
+                Some(Entry { lux, luma, .. }) => Some(Entry::new(*lux, *luma, brightness)),
+            };
             // Every time user changed brightness, reset the cooldown period
             self.pending_cooldown = PENDING_COOLDOWN_RESET;
         } else if self.pending_cooldown > 0 {
@@ -78,9 +94,7 @@ impl Controller {
         } else if self.pending.is_some() {
             self.learn();
         } else {
-            let desired_brightness = self.predict(lux, luma);
-            self.change_brightness(brightness, desired_brightness);
-            self.last_brightness = desired_brightness;
+            self.predict(lux, luma);
         }
     }
 
@@ -133,9 +147,9 @@ impl Controller {
         }
     }
 
-    fn predict(&mut self, lux: u64, luma: Option<u8>) -> u64 {
+    fn predict(&mut self, lux: u64, luma: Option<u8>) {
         if self.data.entries.len() == 0 {
-            return 0;
+            return;
         }
 
         let points = self
@@ -175,28 +189,7 @@ impl Controller {
             .map(|p| p.0 * p.2 / distance_denominator)
             .sum();
 
-        prediction as u64
-    }
-
-    fn change_brightness(&self, mut last_value: u64, value: u64) {
-        if last_value == value {
-            return;
-        }
-
-        let diff = max(value, last_value) - min(value, last_value);
-        let dir = if last_value < value { 1 } else { -1 };
-        let (step, sleep) = if diff >= TRANSITION_SPEED {
-            (diff / TRANSITION_SPEED, 1)
-        } else {
-            (1, TRANSITION_SPEED / diff)
-        };
-
-        while dir > 0 && last_value < value || dir < 0 && last_value > value {
-            let new_value = ((last_value as i64) + (step as i64) * dir) as u64;
-            self.brightness.set(new_value).unwrap();
-            last_value = new_value;
-            thread::sleep(Duration::from_millis(sleep));
-        }
+        self.prediction_tx.send(prediction as u64).unwrap();
     }
 }
 
@@ -204,64 +197,74 @@ impl Controller {
 mod tests {
     use super::*;
     use crate::als::MockAls;
-    use crate::brightness::MockBrightness;
     use itertools::iproduct;
     use std::collections::HashSet;
+    use std::sync::mpsc;
 
-    fn setup_controller() -> Controller {
-        Controller::new(
-            Box::new(MockBrightness::new()),
-            Box::new(MockAls::new()),
-            false,
-        )
+    fn setup() -> (Controller, Sender<u64>, Receiver<u64>) {
+        let (user_tx, user_rx) = mpsc::channel();
+        let (prediction_tx, prediction_rx) = mpsc::channel();
+        user_tx.send(0).unwrap();
+        let controller = Controller::new(prediction_tx, user_rx, Box::new(MockAls::new()), false);
+        (controller, user_tx, prediction_rx)
     }
 
     #[test]
-    fn test_process_first_user_change() {
-        let mut controller = setup_controller();
+    fn test_process_first_user_change() -> Result<(), Box<dyn Error>> {
+        let (mut controller, user_tx, _) = setup();
 
         // User changes brightness to value 33 for a given lux and luma
-        controller.process(12345, Some(66), 33);
+        user_tx.send(33)?;
+        controller.process(12345, Some(66));
 
-        assert_eq!(33, controller.last_brightness);
         assert_eq!(Some(Entry::new(12345, Some(66), 33)), controller.pending);
         assert_eq!(PENDING_COOLDOWN_RESET, controller.pending_cooldown);
+
+        Ok(())
     }
 
     #[test]
-    fn test_process_several_continuous_user_changes() {
-        let mut controller = setup_controller();
+    fn test_process_several_continuous_user_changes() -> Result<(), Box<dyn Error>> {
+        let (mut controller, user_tx, _) = setup();
 
         // User initiates brightness change for a given lux and luma to value 33...
-        controller.process(12345, Some(66), 33);
+        user_tx.send(33)?;
+        controller.process(12345, Some(66));
         // then quickly continues increasing it to 34 (while lux and luma might already be different)...
-        controller.process(23456, Some(36), 34);
-        // and once again increases to 35 (which is the indended brightness value they wish to learn for the initial lux and luma)
-        controller.process(100, Some(16), 35);
+        user_tx.send(34)?;
+        controller.process(23456, Some(36));
+        // and even faster to 36 (which is the indended brightness value they wish to learn for the initial lux and luma)
+        user_tx.send(35)?;
+        user_tx.send(36)?;
+        controller.process(100, Some(16));
 
-        assert_eq!(35, controller.last_brightness);
-        assert_eq!(Some(Entry::new(12345, Some(66), 35)), controller.pending);
+        assert_eq!(Some(Entry::new(12345, Some(66), 36)), controller.pending);
         assert_eq!(PENDING_COOLDOWN_RESET, controller.pending_cooldown);
+
+        Ok(())
     }
 
     #[test]
-    fn test_process_learns_user_change_after_cooldown() {
-        let mut controller = setup_controller();
+    fn test_process_learns_user_change_after_cooldown() -> Result<(), Box<dyn Error>> {
+        let (mut controller, user_tx, _) = setup();
 
         // User changes brightness to a desired value
-        controller.process(12345, Some(66), 33);
-        controller.process(23456, Some(36), 34);
-        controller.process(100, Some(16), 35);
+        user_tx.send(33)?;
+        controller.process(12345, Some(66));
+        user_tx.send(33)?;
+        controller.process(23456, Some(36));
+        user_tx.send(35)?;
+        controller.process(100, Some(16));
 
         for i in 1..=PENDING_COOLDOWN_RESET {
             // User doesn't change brightness anymore, so even if lux or luma change, we are in cooldown period
-            controller.process(100 + i as u64, Some(i), 35);
+            controller.process(100 + i as u64, Some(i));
             assert_eq!(PENDING_COOLDOWN_RESET - i, controller.pending_cooldown);
             assert_eq!(Some(Entry::new(12345, Some(66), 35)), controller.pending);
         }
 
         // One final process will trigger the learning
-        controller.process(200, Some(17), 35);
+        controller.process(200, Some(17));
 
         assert_eq!(None, controller.pending);
         assert_eq!(0, controller.pending_cooldown);
@@ -269,9 +272,11 @@ mod tests {
             vec![Entry::new(12345, Some(66), 35)],
             controller.data.entries
         );
+
+        Ok(())
     }
 
-    // If user configured brightess value in certain conditions (amount of light around, screen contents),
+    // If user configured brightness value in certain conditions (amount of light around, screen contents),
     // how changes in environment or screen contents can affect the desired brightness level:
     //
     // |                 | darker env      | same env         | brighter env     |
@@ -281,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_learn_data_cleanup() {
-        let mut controller = setup_controller();
+        let (mut controller, _, _) = setup();
 
         let pending = Entry::new(10, Some(20), 30);
 
@@ -338,29 +343,40 @@ mod tests {
 
     #[test]
     fn test_predict_no_data_points() {
-        let mut controller = setup_controller();
+        let (mut controller, _, prediction_rx) = setup();
         controller.data.entries = vec![];
+
         // predict() should not be called with no data, but just in case confirm we don't panic
-        assert_eq!(0, controller.predict(10, Some(20)));
+        controller.predict(10, Some(20));
+
+        assert_eq!(true, prediction_rx.try_recv().is_err());
     }
 
     #[test]
-    fn test_predict_one_data_point() {
-        let mut controller = setup_controller();
+    fn test_predict_one_data_point() -> Result<(), Box<dyn Error>> {
+        let (mut controller, _, prediction_rx) = setup();
         controller.data.entries = vec![Entry::new(5, Some(10), 15)];
-        assert_eq!(15, controller.predict(10, Some(20)));
+
+        controller.predict(10, Some(20));
+
+        assert_eq!(15, prediction_rx.try_recv()?);
+        Ok(())
     }
 
     #[test]
-    fn test_predict_known_conditions() {
-        let mut controller = setup_controller();
+    fn test_predict_known_conditions() -> Result<(), Box<dyn Error>> {
+        let (mut controller, _, prediction_rx) = setup();
         controller.data.entries = vec![Entry::new(5, Some(10), 15), Entry::new(10, Some(20), 30)];
-        assert_eq!(30, controller.predict(10, Some(20)));
+
+        controller.predict(10, Some(20));
+
+        assert_eq!(30, prediction_rx.try_recv()?);
+        Ok(())
     }
 
     #[test]
-    fn test_predict_approximate() {
-        let mut controller = setup_controller();
+    fn test_predict_approximate() -> Result<(), Box<dyn Error>> {
+        let (mut controller, _, prediction_rx) = setup();
         controller.data.entries = vec![
             Entry::new(5, Some(10), 15),
             Entry::new(10, Some(20), 30),
@@ -371,6 +387,9 @@ mod tests {
         // dist1 = sqrt((x1 - x2)^2 + (y1 - y2)^2)
         // weight1 = (1/dist1) / (1/dist1 + 1/dist2 + 1/dist3)
         // prediction = weight1*brightness1 + weight2*brightness2 + weight3*brightness
-        assert_eq!(44, controller.predict(50, Some(50)));
+        controller.predict(50, Some(50));
+
+        assert_eq!(44, prediction_rx.try_recv()?);
+        Ok(())
     }
 }
