@@ -5,6 +5,7 @@ use crate::frame::object::Object;
 
 use ash::{vk, Device, Entry, Instance};
 use itertools::Itertools;
+use std::cell::RefCell;
 use std::default::Default;
 use std::error::Error;
 use std::ffi::CString;
@@ -20,6 +21,8 @@ pub struct Processor {
     command_buffers: Vec<vk::CommandBuffer>,
     queue: vk::Queue,
     fence: vk::Fence,
+    image: RefCell<Option<vk::Image>>,
+    image_memory: RefCell<Option<vk::DeviceMemory>>,
 }
 
 impl Processor {
@@ -125,6 +128,8 @@ impl Processor {
                 command_buffers,
                 queue,
                 fence,
+                image: RefCell::new(None),
+                image_memory: RefCell::new(None),
             })
         }
     }
@@ -133,6 +138,13 @@ impl Processor {
 impl Drop for Processor {
     fn drop(&mut self) {
         unsafe {
+            if let Some(image) = *self.image.borrow() {
+                self.device.destroy_image(image, None);
+            }
+            if let Some(image_memory) = *self.image_memory.borrow() {
+                self.device.free_memory(image_memory, None);
+            }
+
             self.device.device_wait_idle().unwrap();
             self.device.destroy_fence(self.fence, None);
             self.device.destroy_buffer(self.buffer, None);
@@ -155,36 +167,42 @@ impl super::Processor for Processor {
                 .log2()
                 .floor() as u32;
 
-            let image_create_info = vk::ImageCreateInfo::builder()
-                .image_type(vk::ImageType::TYPE_2D)
-                .format(vk::Format::B8G8R8A8_UNORM)
-                .extent(vk::Extent3D {
-                    width: frame.width / 2,
-                    height: frame.height / 2,
-                    depth: 1,
-                })
-                .mip_levels(mip_levels)
-                .array_layers(1)
-                .tiling(vk::ImageTiling::OPTIMAL)
-                .initial_layout(vk::ImageLayout::UNDEFINED)
-                .samples(vk::SampleCountFlags::TYPE_1)
-                .usage(
-                    vk::ImageUsageFlags::TRANSFER_DST
-                        | vk::ImageUsageFlags::TRANSFER_SRC
-                        | vk::ImageUsageFlags::SAMPLED,
-                ) // TODO need sampled?
-                .sharing_mode(vk::SharingMode::EXCLUSIVE);
+            // TODO this assumes that screen resolution never changes :)
+            if self.image.borrow().is_none() {
+                let image_create_info = vk::ImageCreateInfo::builder()
+                    .image_type(vk::ImageType::TYPE_2D)
+                    .format(vk::Format::B8G8R8A8_UNORM)
+                    .extent(vk::Extent3D {
+                        width: frame.width / 2,
+                        height: frame.height / 2,
+                        depth: 1,
+                    })
+                    .mip_levels(mip_levels)
+                    .array_layers(1)
+                    .tiling(vk::ImageTiling::OPTIMAL)
+                    .initial_layout(vk::ImageLayout::UNDEFINED)
+                    .samples(vk::SampleCountFlags::TYPE_1)
+                    .usage(
+                        vk::ImageUsageFlags::TRANSFER_DST
+                            | vk::ImageUsageFlags::TRANSFER_SRC
+                            | vk::ImageUsageFlags::SAMPLED,
+                    ) // TODO need sampled?
+                    .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-            let image = self.device.create_image(&image_create_info, None)?;
-            let image_memory_req = self.device.get_image_memory_requirements(image);
+                let image = self.device.create_image(&image_create_info, None)?;
+                let image_memory_req = self.device.get_image_memory_requirements(image);
 
-            let image_allocate_info = vk::MemoryAllocateInfo::builder()
-                .allocation_size(image_memory_req.size)
-                .memory_type_index(0);
+                let image_allocate_info = vk::MemoryAllocateInfo::builder()
+                    .allocation_size(image_memory_req.size)
+                    .memory_type_index(0);
 
-            let image_memory = self.device.allocate_memory(&image_allocate_info, None)?;
+                let image_memory = self.device.allocate_memory(&image_allocate_info, None)?;
 
-            self.device.bind_image_memory(image, image_memory, 0)?;
+                self.device.bind_image_memory(image, image_memory, 0)?;
+
+                self.image.borrow_mut().insert(image);
+                self.image_memory.borrow_mut().insert(image_memory);
+            }
 
             //////
 
@@ -261,7 +279,7 @@ impl super::Processor for Processor {
             let image_barrier = vk::ImageMemoryBarrier::builder()
                 .old_layout(vk::ImageLayout::UNDEFINED)
                 .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .image(image)
+                .image(self.image.borrow().unwrap())
                 .subresource_range(
                     vk::ImageSubresourceRange::builder()
                         .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
@@ -321,7 +339,7 @@ impl super::Processor for Processor {
                 self.command_buffers[0],
                 frame_image,
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                image,
+                self.image.borrow().unwrap(),
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 &[blit_info.build()],
                 vk::Filter::LINEAR,
@@ -337,7 +355,7 @@ impl super::Processor for Processor {
                 let image_barrier = vk::ImageMemoryBarrier::builder()
                     .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                     .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                    .image(image)
+                    .image(self.image.borrow().unwrap())
                     .subresource_range(
                         vk::ImageSubresourceRange::builder()
                             .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
@@ -398,9 +416,9 @@ impl super::Processor for Processor {
 
                 self.device.cmd_blit_image(
                     self.command_buffers[0],
-                    image,
+                    self.image.borrow().unwrap(),
                     vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                    image,
+                    self.image.borrow().unwrap(),
                     vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                     &[blit_info.build()],
                     vk::Filter::LINEAR,
@@ -415,7 +433,7 @@ impl super::Processor for Processor {
             let image_barrier = vk::ImageMemoryBarrier::builder()
                 .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                 .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                .image(image)
+                .image(self.image.borrow().unwrap())
                 .subresource_range(
                     vk::ImageSubresourceRange::builder()
                         .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
@@ -460,7 +478,7 @@ impl super::Processor for Processor {
 
             self.device.cmd_copy_image_to_buffer(
                 self.command_buffers[0],
-                image,
+                self.image.borrow().unwrap(),
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 self.buffer,
                 &[buffer_image_copy.build()],
@@ -505,8 +523,6 @@ impl super::Processor for Processor {
 
             self.device.unmap_memory(self.buffer_memory);
             self.device.reset_fences(&[self.fence])?;
-            self.device.destroy_image(image, None);
-            self.device.free_memory(image_memory, None);
             self.device.destroy_image(frame_image, None);
             self.device.free_memory(frame_image_memory, None);
 
