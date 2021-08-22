@@ -4,8 +4,9 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
-const TRANSITION_SPEED_MS: u64 = 200;
-const SLEEP_MS: u64 = 100;
+const TRANSITION_MAX_MS: u64 = 200;
+const TRANSITION_STEP_MS: u64 = 1;
+const WAITING_SLEEP_MS: u64 = 100;
 
 pub struct Controller {
     brightness: Box<dyn Brightness>,
@@ -15,10 +16,10 @@ pub struct Controller {
     target: Option<Target>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct Target {
     desired: u64,
     step: i64,
-    sleep: u64,
 }
 
 impl Target {
@@ -66,7 +67,7 @@ impl Controller {
         }
 
         // 4. nothing to do, sleep and check again
-        thread::sleep(Duration::from_millis(SLEEP_MS));
+        thread::sleep(Duration::from_millis(WAITING_SLEEP_MS));
         Ok(())
     }
 
@@ -82,23 +83,12 @@ impl Controller {
             Some(old_target) if old_target.desired == desired => (),
             _ if desired == self.current => (),
             _ => {
-                let diff = abs_diff(desired, self.current);
-                let dir = if self.current < desired { 1 } else { -1 };
-                let (step, sleep) = if diff >= TRANSITION_SPEED_MS {
-                    (
-                        // TODO unit test this, so we can't overshoot or undershoot using step
-                        dir * ((diff as f64 / TRANSITION_SPEED_MS as f64).floor().max(1.0) as i64),
-                        1,
-                    )
+                let step = if desired > self.current {
+                    div_ceil(desired - self.current, TRANSITION_MAX_MS)
                 } else {
-                    (dir, SLEEP_MS.min(TRANSITION_SPEED_MS / diff))
+                    -1 * div_ceil(self.current - desired, TRANSITION_MAX_MS)
                 };
-
-                self.target = Some(Target {
-                    desired,
-                    step,
-                    sleep,
-                });
+                self.target = Some(Target { desired, step });
             }
         };
     }
@@ -110,7 +100,7 @@ impl Controller {
             } else {
                 let new_value = (self.current as i64 + target.step).max(0) as u64;
                 self.current = self.brightness.set(new_value)?;
-                thread::sleep(Duration::from_millis(target.sleep));
+                thread::sleep(Duration::from_millis(TRANSITION_STEP_MS));
             }
         }
 
@@ -118,12 +108,8 @@ impl Controller {
     }
 }
 
-fn abs_diff(x: u64, y: u64) -> u64 {
-    if x > y {
-        x - y
-    } else {
-        y - x
-    }
+fn div_ceil(x: u64, y: u64) -> i64 {
+    ((x + y - 1) / y) as i64
 }
 
 #[cfg(test)]
@@ -133,12 +119,8 @@ mod tests {
     use std::sync::mpsc;
 
     // Intentionally not in main code to prevent confusing fields by accident
-    fn target(desired: u64, step: i64, sleep: u64) -> Target {
-        Target {
-            desired,
-            step,
-            sleep,
-        }
+    fn target(desired: u64, step: i64) -> Target {
+        Target { desired, step }
     }
 
     fn setup(brightness_mock: MockBrightness) -> (Controller, Sender<u64>, Receiver<u64>) {
@@ -181,7 +163,7 @@ mod tests {
         prediction_tx.send(37)?;
 
         // ... or we were already in a transition
-        controller.target = Some(target(77, 1, 1));
+        controller.target = Some(target(77, 1));
 
         // when we execute the next step...
         controller.step()?;
@@ -195,13 +177,63 @@ mod tests {
     }
 
     #[test]
-    fn test_target_reached() {
-        assert_eq!(false, target(10, 1, 1).reached(9));
-        assert_eq!(true, target(10, 1, 1).reached(10));
-        assert_eq!(true, target(10, 1, 1).reached(11));
+    fn test_update_target_ignore_when_desired_didnt_change() {
+        let old_target = Some(target(10, -20));
+        let (mut controller, _, _) = setup(MockBrightness::new());
+        controller.target = old_target;
+        controller.current = 7;
 
-        assert_eq!(true, target(10, -1, 1).reached(9));
-        assert_eq!(true, target(10, -1, 1).reached(10));
-        assert_eq!(false, target(10, -1, 1).reached(11));
+        controller.update_target(10);
+
+        assert_eq!(old_target, controller.target);
+    }
+
+    #[test]
+    fn test_update_target_ignore_when_desired_equals_current() {
+        let old_target = Some(target(10, -20));
+        let (mut controller, _, _) = setup(MockBrightness::new());
+        controller.target = old_target;
+        controller.current = 7;
+
+        controller.update_target(7);
+
+        assert_eq!(old_target, controller.target);
+    }
+
+    #[test]
+    fn test_update_target_finds_minimal_step_that_reaches_target_within_transition_duration() {
+        let (mut controller, _, _) = setup(MockBrightness::new());
+        controller.current = 10000;
+
+        let test_cases = vec![
+            (10001, 1),
+            (10013, 1),
+            (10199, 1),
+            (10200, 1),
+            (10413, 3),
+            (11732, 9),
+            (9999, -1),
+            (9983, -1),
+            (9801, -1),
+            (9800, -1),
+            (9473, -3),
+            (8433, -8),
+        ];
+
+        for (desired, expected_step) in test_cases {
+            controller.update_target(desired);
+            assert_eq!(Some(target(desired, expected_step)), controller.target);
+        }
+    }
+
+    #[test]
+    fn test_target_reached() {
+        assert_eq!(false, target(10, 1).reached(9));
+        assert_eq!(true, target(10, 1).reached(10));
+        assert_eq!(true, target(10, 1).reached(11));
+
+        assert_eq!(true, target(10, -1).reached(9));
+        assert_eq!(true, target(10, -1).reached(10));
+        assert_eq!(false, target(10, -1).reached(11));
     }
 }
