@@ -116,6 +116,7 @@ fn div_ceil(x: u64, y: u64) -> i64 {
 mod tests {
     use super::*;
     use crate::brightness::MockBrightness;
+    use mockall::predicate;
     use std::sync::mpsc;
 
     // Intentionally not in main code to prevent confusing fields by accident
@@ -224,6 +225,72 @@ mod tests {
             controller.update_target(desired);
             assert_eq!(Some(target(desired, expected_step)), controller.target);
         }
+    }
+
+    #[test]
+    fn test_transition_reset_target_when_reached() -> Result<(), Box<dyn Error>> {
+        let (mut controller, _, _) = setup(MockBrightness::new());
+        controller.current = 10;
+        controller.target = Some(target(10, 20));
+
+        controller.transition()?;
+
+        assert_eq!(None, controller.target);
+        Ok(())
+    }
+
+    #[test]
+    fn test_transition_increases_brightness_with_next_step() -> Result<(), Box<dyn Error>> {
+        let mut brightness_mock = MockBrightness::new();
+        brightness_mock
+            .expect_set()
+            .with(predicate::eq(12))
+            .times(1)
+            .returning(|x| Ok(x));
+        let (mut controller, _, _) = setup(brightness_mock);
+        controller.current = 10;
+        controller.target = Some(target(20, 2));
+
+        controller.transition()?;
+
+        assert_eq!(12, controller.current);
+        Ok(())
+    }
+
+    #[test]
+    fn test_transition_decreases_brightness_with_next_step() -> Result<(), Box<dyn Error>> {
+        let mut brightness_mock = MockBrightness::new();
+        brightness_mock
+            .expect_set()
+            .with(predicate::eq(9))
+            .times(1)
+            .returning(|x| Ok(x));
+        let (mut controller, _, _) = setup(brightness_mock);
+        controller.current = 10;
+        controller.target = Some(target(9, -1));
+
+        controller.transition()?;
+
+        assert_eq!(9, controller.current);
+        Ok(())
+    }
+
+    #[test]
+    fn test_transition_doesnt_decrease_below_0() -> Result<(), Box<dyn Error>> {
+        let mut brightness_mock = MockBrightness::new();
+        brightness_mock
+            .expect_set()
+            .with(predicate::eq(0))
+            .times(1)
+            .returning(|x| Ok(x));
+        let (mut controller, _, _) = setup(brightness_mock);
+        controller.current = 1;
+        controller.target = Some(target(0, -2)); // step of -2 should not overshoot
+
+        controller.transition()?;
+
+        assert_eq!(0, controller.current);
+        Ok(())
     }
 
     #[test]
