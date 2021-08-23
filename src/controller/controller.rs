@@ -2,7 +2,6 @@ use crate::als::Als;
 use crate::controller::data::{Data, Entry};
 use crate::controller::kalman::Kalman;
 use itertools::Itertools;
-use std::error::Error;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
@@ -51,7 +50,7 @@ impl Controller {
             prediction_tx,
             user_rx,
             als,
-            kalman: Kalman::new(1., 20., 10.),
+            kalman: Kalman::new(1.0, 20.0, 10.0),
             pending_cooldown: 0,
             pending: None,
             data,
@@ -60,16 +59,14 @@ impl Controller {
         }
     }
 
-    pub fn adjust(&mut self, luma: Option<u8>) -> Result<(), Box<dyn Error>> {
-        let lux = self.als.get()?;
-        let lux = self.kalman.process(lux as f64).round() as u64; // TODO make Kalman::<u64>
-        if !self.kalman.initialized() {
-            return Ok(());
+    pub fn adjust(&mut self, luma: Option<u8>) {
+        let lux = self
+            .kalman
+            .process(self.als.get().expect("Unable to get ALS value"));
+
+        if self.kalman.initialized() {
+            self.process(lux, luma);
         }
-
-        self.process(lux, luma);
-
-        Ok(())
     }
 
     fn process(&mut self, lux: u64, luma: Option<u8>) {
@@ -199,6 +196,7 @@ mod tests {
     use crate::als::MockAls;
     use itertools::iproduct;
     use std::collections::HashSet;
+    use std::error::Error;
     use std::sync::mpsc;
 
     fn setup() -> (Controller, Sender<u64>, Receiver<u64>) {

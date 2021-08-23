@@ -7,7 +7,7 @@ pub struct Capturer {}
 impl super::Capturer for Capturer {
     fn run(&self, mut controller: Controller) {
         loop {
-            controller.adjust(None).expect("TODO");
+            controller.adjust(None);
             thread::sleep(Duration::from_secs(1));
         }
     }

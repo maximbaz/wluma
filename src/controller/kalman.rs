@@ -1,39 +1,38 @@
 pub struct Kalman {
-    steps: u64,
     q: f64,
     r: f64,
-    value: Option<f64>,
     covariance: f64,
+    value: Option<f64>,
+    steps: u64,
 }
 
 impl Kalman {
     pub fn new(q: f64, r: f64, covariance: f64) -> Kalman {
         Kalman {
-            steps: 0,
             q,
             r,
-            value: None,
             covariance,
+            value: None,
+            steps: 0,
         }
     }
-    pub fn process(&mut self, input: f64) -> f64 {
+
+    pub fn process(&mut self, next: u64) -> u64 {
         self.steps += 1;
+
         match self.value {
-            None => {
-                self.value = Some(input);
-                input
-            }
-            Some(x0) => {
+            None => self.value = Some(next as f64),
+            Some(prev) => {
                 let p0 = self.covariance + self.q;
                 let k = p0 / (p0 + self.r);
-                let x1 = x0 + k * (input - x0);
-                let cov = (1.0 - k) * p0;
-                self.value = Some(x1);
-                self.covariance = cov;
-                x1
+                self.value = Some(prev + k * (next as f64 - prev));
+                self.covariance = (1.0 - k) * p0;
             }
         }
+
+        self.value.unwrap().round() as u64
     }
+
     pub fn initialized(&self) -> bool {
         self.steps > 10
     }

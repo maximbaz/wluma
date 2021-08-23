@@ -81,10 +81,12 @@ impl Capturer {
                 }
 
                 Event::Ready { .. } => {
-                    controller
-                        .borrow_mut()
-                        .adjust(self.processor.luma_percent(&frame).ok())
-                        .expect("TODO");
+                    let luma = self
+                        .processor
+                        .luma_percent(&frame)
+                        .expect("Unable to compute luma percent");
+
+                    controller.borrow_mut().adjust(Some(luma));
 
                     data.destroy();
 
