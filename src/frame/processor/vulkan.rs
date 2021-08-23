@@ -1,8 +1,4 @@
-// Lasciate ogni speranza, voi ch'entrate.
-// Desperate attempt to get it working at least. To be cleaned up at some point.
-
 use crate::frame::object::Object;
-
 use ash::{vk, Device, Entry, Instance};
 use itertools::Itertools;
 use std::cell::RefCell;
@@ -11,8 +7,15 @@ use std::error::Error;
 use std::ffi::CString;
 use std::ops::Drop;
 
+const WLUMA_VERSION: u32 = vk::make_api_version(0, 2, 0, 0);
+const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
+
+const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GPU is doing too poor of a job averaging the colors
+const BUFFER_PIXELS: u64 = 500 * 4; // Pre-allocated buffer size, should be enough to fit FINAL_MIP_LEVEL
+const FENCES_TIMEOUT_NS: u64 = 1000_000_000;
+
 pub struct Processor {
-    _entry: Entry,
+    _entry: Entry, // must keep reference to prevent early memory release
     instance: Instance,
     device: Device,
     buffer: vk::Buffer,
@@ -25,119 +28,488 @@ pub struct Processor {
     image_memory: RefCell<Option<vk::DeviceMemory>>,
 }
 
+impl super::Processor for Processor {
+    fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
+        assert_eq!(
+            1, frame.num_objects,
+            "Frames with multiple objects are not supported yet"
+        );
+
+        // TODO this assumes that screen resolution never changes :)
+        if self.image.borrow().is_none() {
+            self.init_image(frame)?;
+        }
+        let image = self
+            .image
+            .borrow()
+            .ok_or("Unable to borrow the Vulkan image")?;
+
+        let (frame_image, frame_image_memory) = self.init_frame_image(frame)?;
+
+        self.begin_commands()?;
+
+        let (target_mip_level, mip_width, mip_height) =
+            self.generate_mipmaps(frame, &frame_image, &image);
+
+        self.copy_mipmap(&image, target_mip_level, mip_width, mip_height);
+
+        self.submit_commands()?;
+
+        let pixels = mip_width as usize * mip_height as usize;
+        let rgbas = unsafe {
+            let buffer_pointer = self.device.map_memory(
+                self.buffer_memory,
+                0,
+                vk::WHOLE_SIZE,
+                vk::MemoryMapFlags::empty(),
+            )?;
+            std::slice::from_raw_parts(buffer_pointer as *mut u8, pixels * 4)
+        };
+
+        let result = compute_perceived_lightness_percent(rgbas, pixels);
+
+        unsafe {
+            self.device.unmap_memory(self.buffer_memory);
+            self.device.reset_fences(&[self.fence])?;
+            self.device.destroy_image(frame_image, None);
+            self.device.free_memory(frame_image_memory, None);
+        }
+
+        Ok(result)
+    }
+}
+
 impl Processor {
     pub fn new() -> Result<Self, Box<dyn Error>> {
+        let app_name = CString::new("wluma")?;
+        let app_info = vk::ApplicationInfo::builder()
+            .application_name(&app_name)
+            .application_version(WLUMA_VERSION)
+            .engine_name(&app_name)
+            .engine_version(WLUMA_VERSION)
+            .api_version(VULKAN_VERSION);
+
+        let instance_extensions = &[
+            vk::KhrExternalMemoryCapabilitiesFn::name().as_ptr(),
+            vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
+        ];
+
+        let entry = unsafe { Entry::new()? };
+
+        let create_info = vk::InstanceCreateInfo::builder()
+            .application_info(&app_info)
+            .enabled_extension_names(instance_extensions);
+
+        let instance = unsafe { entry.create_instance(&create_info, None)? };
+
+        let physical_devices = unsafe { instance.enumerate_physical_devices()? };
+        let physical_device = *physical_devices
+            .iter()
+            .next()
+            .ok_or("Unable to find a physical device")?;
+
+        let queue_family_index = 0;
+        let queue_info = &[vk::DeviceQueueCreateInfo::builder()
+            .queue_family_index(queue_family_index)
+            .queue_priorities(&[1.0])
+            .build()];
+
+        let device_extensions = &[
+            vk::KhrExternalMemoryFn::name().as_ptr(),
+            vk::KhrExternalMemoryFdFn::name().as_ptr(),
+            vk::ExtExternalMemoryDmaBufFn::name().as_ptr(),
+        ];
+        let features = vk::PhysicalDeviceFeatures::builder();
+
+        let device_create_info = vk::DeviceCreateInfo::builder()
+            .queue_create_infos(queue_info)
+            .enabled_extension_names(device_extensions)
+            .enabled_features(&features);
+
+        let device = unsafe { instance.create_device(physical_device, &device_create_info, None)? };
+
+        let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
+
+        let pool_create_info = vk::CommandPoolCreateInfo::builder()
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+            .queue_family_index(queue_family_index);
+
+        let command_pool = unsafe { device.create_command_pool(&pool_create_info, None)? };
+
+        let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+            .command_buffer_count(1)
+            .command_pool(command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY);
+        let command_buffers =
+            unsafe { device.allocate_command_buffers(&command_buffer_allocate_info)? };
+
+        let buffer_info = vk::BufferCreateInfo::builder()
+            .size(BUFFER_PIXELS)
+            .usage(vk::BufferUsageFlags::TRANSFER_DST)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
+
+        let buffer_memory_req = unsafe { device.get_buffer_memory_requirements(buffer) };
+        let allocate_info = vk::MemoryAllocateInfo {
+            allocation_size: buffer_memory_req.size,
+            memory_type_index: 0,
+            ..Default::default()
+        };
+
+        let buffer_memory = unsafe { device.allocate_memory(&allocate_info, None)? };
         unsafe {
-            let app_name = CString::new("wluma")?;
-
-            let appinfo = vk::ApplicationInfo::builder()
-                .application_name(&app_name)
-                .application_version(vk::make_api_version(0, 2, 0, 0))
-                .engine_name(&app_name)
-                .engine_version(vk::make_api_version(0, 2, 0, 0))
-                .api_version(vk::make_api_version(0, 1, 0, 0)); // TODO 1.2
-
-            // let extensions = vec![
-            // vk::KhrExternalMemoryFn::name().as_ptr(),
-            // ash::extensions::khr::ExternalMemoryFd::name().as_ptr(),
-            // ash::extensions::khr::GetPhysicalDeviceProperties2::name().as_ptr(),
-            // ash::extensions::khr::ExternalFenceFd::name().as_ptr(),
-            // ];
-            // println!("{:?}", vk::KhrExternalMemoryFn::name());
-
-            let create_info = vk::InstanceCreateInfo::builder().application_info(&appinfo);
-            // .enabled_extension_names(&extensions);
-
-            let entry = Entry::new().unwrap();
-            let instance = entry.create_instance(&create_info, None)?;
-
-            let physical_device = instance.enumerate_physical_devices()?;
-            let physical_device = *physical_device.iter().next().ok_or("no suitable device")?;
-
-            let queue_family_index = 0;
-            let queue_info = &[vk::DeviceQueueCreateInfo::builder()
-                .queue_family_index(queue_family_index)
-                .queue_priorities(&[1.0])
-                .build()];
-
-            // let extensions = &[
-            //ash::extensions::khr::ExternalMemoryFd::name().as_ptr()
-            // ];
-            // let features = vk::PhysicalDeviceFeatures::builder();
-
-            let device_create_info = vk::DeviceCreateInfo::builder().queue_create_infos(queue_info);
-            // .enabled_extension_names(extensions)
-            // .enabled_features(&features);
-
-            let device = instance.create_device(physical_device, &device_create_info, None)?;
-
-            let queue = device.get_device_queue(queue_family_index, 0);
-
-            let pool_create_info = vk::CommandPoolCreateInfo::builder()
-                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                .queue_family_index(queue_family_index);
-
-            let command_pool = device.create_command_pool(&pool_create_info, None)?;
-
-            let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-                .command_buffer_count(1)
-                .command_pool(command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY);
-
-            let command_buffers = device.allocate_command_buffers(&command_buffer_allocate_info)?;
-
-            let buffer_info = vk::BufferCreateInfo::builder()
-                .size(4 * 500)
-                .usage(vk::BufferUsageFlags::TRANSFER_DST)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE);
-
-            let buffer = device.create_buffer(&buffer_info, None)?;
-
-            let buffer_memory_req = device.get_buffer_memory_requirements(buffer);
-
-            let allocate_info = vk::MemoryAllocateInfo {
-                allocation_size: buffer_memory_req.size,
-                memory_type_index: 0,
-                ..Default::default()
-            };
-
-            let buffer_memory = device.allocate_memory(&allocate_info, None)?;
-
             device.bind_buffer_memory(buffer, buffer_memory, 0)?;
-
-            let fence_create_info = vk::FenceCreateInfo::builder();
-
-            let fence = device.create_fence(&fence_create_info, None)?;
-
-            // // let features = Features::none();
-            // let features = physical.supported_features();
-            // let device_extensions = DeviceExtensions {
-            //     ext_external_memory_dma_buf: true,
-            //     khr_external_memory_fd: true,
-            //     khr_external_memory: true,
-            //     ..DeviceExtensions::none()
-            // };
-
-            Ok(Self {
-                _entry: entry,
-                instance,
-                device,
-                buffer,
-                buffer_memory,
-                command_pool,
-                command_buffers,
-                queue,
-                fence,
-                image: RefCell::new(None),
-                image_memory: RefCell::new(None),
-            })
         }
+
+        let fence_create_info = vk::FenceCreateInfo::builder();
+        let fence = unsafe { device.create_fence(&fence_create_info, None)? };
+
+        Ok(Self {
+            _entry: entry,
+            instance,
+            device,
+            buffer,
+            buffer_memory,
+            command_pool,
+            command_buffers,
+            queue,
+            fence,
+            image: RefCell::new(None),
+            image_memory: RefCell::new(None),
+        })
+    }
+
+    fn init_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
+        let (width, height, mip_levels) = image_dimensions(frame);
+
+        let image_create_info = vk::ImageCreateInfo::builder()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(vk::Format::B8G8R8A8_UNORM)
+            .extent(vk::Extent3D {
+                width,
+                height,
+                depth: 1,
+            })
+            .mip_levels(mip_levels)
+            .array_layers(1)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::TRANSFER_SRC)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        let image = unsafe { self.device.create_image(&image_create_info, None)? };
+        let image_memory_req = unsafe { self.device.get_image_memory_requirements(image) };
+
+        let image_allocate_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(image_memory_req.size)
+            .memory_type_index(0);
+
+        let image_memory = unsafe { self.device.allocate_memory(&image_allocate_info, None)? };
+
+        unsafe {
+            self.device.bind_image_memory(image, image_memory, 0)?;
+        }
+
+        self.image.borrow_mut().insert(image);
+        self.image_memory.borrow_mut().insert(image_memory);
+        Ok(())
+    }
+
+    fn init_frame_image(
+        &self,
+        frame: &Object,
+    ) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
+        let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::builder()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+
+        let frame_image_create_info = vk::ImageCreateInfo::builder()
+            .push_next(&mut frame_image_memory_info)
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(vk::Format::R8G8B8A8_UNORM)
+            .extent(vk::Extent3D {
+                width: frame.width,
+                height: frame.height,
+                depth: 1,
+            })
+            .mip_levels(1)
+            .array_layers(1)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .usage(vk::ImageUsageFlags::TRANSFER_SRC)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        let frame_image = unsafe { self.device.create_image(&frame_image_create_info, None)? };
+
+        let mut frame_import_memory_info = vk::ImportMemoryFdInfoKHR::builder()
+            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
+            .fd(frame.fds[0]);
+
+        let frame_image_allocate_info = vk::MemoryAllocateInfo::builder()
+            .push_next(&mut frame_import_memory_info)
+            .allocation_size(frame.sizes[0].into())
+            .memory_type_index(0);
+
+        let frame_image_memory = unsafe {
+            self.device
+                .allocate_memory(&frame_image_allocate_info, None)?
+        };
+
+        unsafe {
+            self.device
+                .bind_image_memory(frame_image, frame_image_memory, 0)?;
+        }
+
+        Ok((frame_image, frame_image_memory))
+    }
+
+    fn add_barrier(
+        &self,
+        image: &vk::Image,
+        base_mip_level: u32,
+        mip_levels: u32,
+        old_layout: vk::ImageLayout,
+        new_layout: vk::ImageLayout,
+        src_access_mask: vk::AccessFlags,
+        dst_access_mask: vk::AccessFlags,
+        src_stage_mask: vk::PipelineStageFlags,
+    ) {
+        let image_barrier = vk::ImageMemoryBarrier::builder()
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .image(*image)
+            .subresource_range(
+                vk::ImageSubresourceRange::builder()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .base_mip_level(base_mip_level)
+                    .level_count(mip_levels)
+                    .layer_count(1)
+                    .build(),
+            )
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask);
+
+        unsafe {
+            self.device.cmd_pipeline_barrier(
+                self.command_buffers[0],
+                src_stage_mask,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[image_barrier.build()],
+            );
+        }
+    }
+
+    fn blit(
+        &self,
+        src_image: &vk::Image,
+        src_width: u32,
+        src_height: u32,
+        src_mip_level: u32,
+        dst_image: &vk::Image,
+        dst_width: u32,
+        dst_height: u32,
+        dst_mip_level: u32,
+    ) {
+        let blit_info = vk::ImageBlit::builder()
+            .src_offsets([
+                vk::Offset3D { x: 0, y: 0, z: 0 },
+                vk::Offset3D {
+                    x: src_width as i32,
+                    y: src_height as i32,
+                    z: 1,
+                },
+            ])
+            .src_subresource(
+                vk::ImageSubresourceLayers::builder()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(src_mip_level)
+                    .layer_count(1)
+                    .build(),
+            )
+            .dst_offsets([
+                vk::Offset3D { x: 0, y: 0, z: 0 },
+                vk::Offset3D {
+                    x: dst_width as i32,
+                    y: dst_height as i32,
+                    z: 1,
+                },
+            ])
+            .dst_subresource(
+                vk::ImageSubresourceLayers::builder()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(dst_mip_level)
+                    .layer_count(1)
+                    .build(),
+            );
+
+        unsafe {
+            self.device.cmd_blit_image(
+                self.command_buffers[0],
+                *src_image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                *dst_image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[blit_info.build()],
+                vk::Filter::LINEAR,
+            );
+        }
+    }
+
+    fn generate_mipmaps(
+        &self,
+        frame: &Object,
+        frame_image: &vk::Image,
+        image: &vk::Image,
+    ) -> (u32, u32, u32) {
+        let (mut mip_width, mut mip_height, mip_levels) = image_dimensions(frame);
+
+        self.add_barrier(
+            frame_image,
+            0,
+            1,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            vk::AccessFlags::default(),
+            vk::AccessFlags::TRANSFER_READ,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+        );
+
+        self.add_barrier(
+            image,
+            0,
+            mip_levels,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::AccessFlags::default(),
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+        );
+
+        self.blit(
+            frame_image,
+            frame.width,
+            frame.height,
+            0,
+            image,
+            mip_width,
+            mip_height,
+            0,
+        );
+
+        let target_mip_level = mip_levels - FINAL_MIP_LEVEL;
+        for i in 1..=target_mip_level {
+            self.add_barrier(
+                image,
+                i - 1,
+                1,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                vk::AccessFlags::TRANSFER_WRITE,
+                vk::AccessFlags::TRANSFER_READ,
+                vk::PipelineStageFlags::TRANSFER,
+            );
+
+            let next_mip_width = if mip_width > 1 { mip_width / 2 } else { 1 };
+            let next_mip_height = if mip_height > 1 { mip_height / 2 } else { 1 };
+
+            self.blit(
+                image,
+                mip_width,
+                mip_height,
+                i - 1,
+                image,
+                next_mip_width,
+                next_mip_height,
+                i,
+            );
+
+            mip_width = next_mip_width;
+            mip_height = next_mip_height;
+        }
+
+        (target_mip_level, mip_width, mip_height)
+    }
+
+    fn copy_mipmap(&self, image: &vk::Image, mip_level: u32, width: u32, height: u32) {
+        self.add_barrier(
+            image,
+            mip_level,
+            1,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::AccessFlags::TRANSFER_READ,
+            vk::PipelineStageFlags::TRANSFER,
+        );
+
+        let buffer_image_copy = vk::BufferImageCopy::builder()
+            .image_subresource(
+                vk::ImageSubresourceLayers::builder()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(mip_level)
+                    .layer_count(1)
+                    .build(),
+            )
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width,
+                height,
+                depth: 1,
+            });
+
+        unsafe {
+            self.device.cmd_copy_image_to_buffer(
+                self.command_buffers[0],
+                *image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                self.buffer,
+                &[buffer_image_copy.build()],
+            );
+        }
+    }
+
+    fn begin_commands(&self) -> Result<(), Box<dyn Error>> {
+        let command_buffer_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        unsafe {
+            self.device
+                .begin_command_buffer(self.command_buffers[0], &command_buffer_info)?;
+        }
+
+        Ok(())
+    }
+
+    fn submit_commands(&self) -> Result<(), Box<dyn Error>> {
+        unsafe {
+            self.device.end_command_buffer(self.command_buffers[0])?;
+        }
+
+        let submit_info = vk::SubmitInfo::builder().command_buffers(&self.command_buffers);
+
+        unsafe {
+            self.device
+                .queue_submit(self.queue, &[submit_info.build()], self.fence)?;
+            self.device
+                .wait_for_fences(&[self.fence], true, FENCES_TIMEOUT_NS)?;
+        }
+
+        Ok(())
     }
 }
 
 impl Drop for Processor {
     fn drop(&mut self) {
         unsafe {
+            self.device
+                .device_wait_idle()
+                .expect("Unable to wait for device to become idle");
+
             if let Some(image) = *self.image.borrow() {
                 self.device.destroy_image(image, None);
             }
@@ -145,7 +517,6 @@ impl Drop for Processor {
                 self.device.free_memory(image_memory, None);
             }
 
-            self.device.device_wait_idle().unwrap();
             self.device.destroy_fence(self.fence, None);
             self.device.destroy_buffer(self.buffer, None);
             self.device.free_memory(self.buffer_memory, None);
@@ -158,375 +529,31 @@ impl Drop for Processor {
     }
 }
 
-impl super::Processor for Processor {
-    fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
-        unsafe {
-            assert_eq!(1, frame.num_objects);
+fn compute_perceived_lightness_percent(rgbas: &[u8], pixels: usize) -> u8 {
+    let (rs, gs, bs) = rgbas
+        .iter()
+        .chunks(4) // ignore alpha, it's always 255 and we don't use it in calculations anyway
+        .into_iter()
+        .map(|mut chunk| {
+            let r = *chunk.next().unwrap();
+            let g = *chunk.next().unwrap();
+            let b = *chunk.next().unwrap();
+            (r as f64, g as f64, b as f64)
+        })
+        .fold1(|(rs, gs, bs), (r, g, b)| (rs + r, gs + g, bs + b))
+        .unwrap();
 
-            let mip_levels = f64::max(frame.width.into(), frame.height.into())
-                .log2()
-                .floor() as u32;
+    let pixels = pixels as f64;
+    let (r, g, b) = (rs / pixels, gs / pixels, bs / pixels);
 
-            // TODO this assumes that screen resolution never changes :)
-            if self.image.borrow().is_none() {
-                let image_create_info = vk::ImageCreateInfo::builder()
-                    .image_type(vk::ImageType::TYPE_2D)
-                    .format(vk::Format::B8G8R8A8_UNORM)
-                    .extent(vk::Extent3D {
-                        width: frame.width / 2,
-                        height: frame.height / 2,
-                        depth: 1,
-                    })
-                    .mip_levels(mip_levels)
-                    .array_layers(1)
-                    .tiling(vk::ImageTiling::OPTIMAL)
-                    .initial_layout(vk::ImageLayout::UNDEFINED)
-                    .samples(vk::SampleCountFlags::TYPE_1)
-                    .usage(
-                        vk::ImageUsageFlags::TRANSFER_DST
-                            | vk::ImageUsageFlags::TRANSFER_SRC
-                            | vk::ImageUsageFlags::SAMPLED,
-                    ) // TODO need sampled?
-                    .sharing_mode(vk::SharingMode::EXCLUSIVE);
+    let result = (0.241 * r * r + 0.691 * g * g + 0.068 * b * b).sqrt() / 255.0 * 100.0;
 
-                let image = self.device.create_image(&image_create_info, None)?;
-                let image_memory_req = self.device.get_image_memory_requirements(image);
+    result.round() as u8
+}
 
-                let image_allocate_info = vk::MemoryAllocateInfo::builder()
-                    .allocation_size(image_memory_req.size)
-                    .memory_type_index(0);
-
-                let image_memory = self.device.allocate_memory(&image_allocate_info, None)?;
-
-                self.device.bind_image_memory(image, image_memory, 0)?;
-
-                self.image.borrow_mut().insert(image);
-                self.image_memory.borrow_mut().insert(image_memory);
-            }
-
-            //////
-
-            let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::builder()
-                .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
-
-            let frame_image_create_info = vk::ImageCreateInfo::builder()
-                .push_next(&mut frame_image_memory_info)
-                .image_type(vk::ImageType::TYPE_2D)
-                .format(vk::Format::R8G8B8A8_UNORM)
-                .extent(vk::Extent3D {
-                    width: frame.width,
-                    height: frame.height,
-                    depth: 1,
-                })
-                .mip_levels(1)
-                .array_layers(1)
-                .flags(vk::ImageCreateFlags::ALIAS)
-                .samples(vk::SampleCountFlags::TYPE_1)
-                .tiling(vk::ImageTiling::OPTIMAL)
-                .usage(vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::SAMPLED) // TODO need sampled?
-                .initial_layout(vk::ImageLayout::UNDEFINED)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE);
-
-            let frame_image = self.device.create_image(&frame_image_create_info, None)?;
-
-            let mut frame_import_memory_info = vk::ImportMemoryFdInfoKHR::builder()
-                .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
-                .fd(frame.fds[0]); // TODO dup
-
-            let frame_image_allocate_info = vk::MemoryAllocateInfo::builder()
-                .push_next(&mut frame_import_memory_info)
-                .allocation_size(frame.sizes[0].into())
-                .memory_type_index(0);
-
-            let frame_image_memory = self
-                .device
-                .allocate_memory(&frame_image_allocate_info, None)?;
-
-            self.device
-                .bind_image_memory(frame_image, frame_image_memory, 0)?;
-
-            //////
-
-            let command_buffer_info = vk::CommandBufferBeginInfo::builder()
-                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-            self.device
-                .begin_command_buffer(self.command_buffers[0], &command_buffer_info)?;
-
-            let frame_image_barrier = vk::ImageMemoryBarrier::builder()
-                .old_layout(vk::ImageLayout::UNDEFINED)
-                .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                .image(frame_image)
-                .subresource_range(
-                    vk::ImageSubresourceRange::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                        .layer_count(1)
-                        .level_count(1)
-                        .build(),
-                )
-                .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
-
-            self.device.cmd_pipeline_barrier(
-                self.command_buffers[0],
-                vk::PipelineStageFlags::TOP_OF_PIPE,
-                vk::PipelineStageFlags::TRANSFER,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[frame_image_barrier.build()],
-            );
-
-            let image_barrier = vk::ImageMemoryBarrier::builder()
-                .old_layout(vk::ImageLayout::UNDEFINED)
-                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .image(self.image.borrow().unwrap())
-                .subresource_range(
-                    vk::ImageSubresourceRange::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                        .level_count(mip_levels)
-                        .layer_count(1)
-                        .build(),
-                )
-                .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE);
-
-            self.device.cmd_pipeline_barrier(
-                self.command_buffers[0],
-                vk::PipelineStageFlags::TOP_OF_PIPE,
-                vk::PipelineStageFlags::TRANSFER,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[image_barrier.build()],
-            );
-
-            ////
-
-            let blit_info = vk::ImageBlit::builder()
-                .src_offsets([
-                    vk::Offset3D { x: 0, y: 0, z: 0 },
-                    vk::Offset3D {
-                        x: frame.width as i32,
-                        y: frame.height as i32,
-                        z: 1,
-                    },
-                ])
-                .src_subresource(
-                    vk::ImageSubresourceLayers::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                        .mip_level(0)
-                        .base_array_layer(0)
-                        .layer_count(1)
-                        .build(),
-                )
-                .dst_offsets([
-                    vk::Offset3D { x: 0, y: 0, z: 0 },
-                    vk::Offset3D {
-                        x: frame.width as i32 / 2,
-                        y: frame.height as i32 / 2,
-                        z: 1,
-                    },
-                ])
-                .dst_subresource(
-                    vk::ImageSubresourceLayers::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                        .mip_level(0)
-                        .base_array_layer(0)
-                        .layer_count(1)
-                        .build(),
-                );
-
-            self.device.cmd_blit_image(
-                self.command_buffers[0],
-                frame_image,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                self.image.borrow().unwrap(),
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[blit_info.build()],
-                vk::Filter::LINEAR,
-            );
-
-            /////
-
-            let target_mip_level = mip_levels - 4;
-            let mut mip_width = frame.width as i32 / 2;
-            let mut mip_height = frame.height as i32 / 2;
-
-            for i in 1..=target_mip_level {
-                let image_barrier = vk::ImageMemoryBarrier::builder()
-                    .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                    .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                    .image(self.image.borrow().unwrap())
-                    .subresource_range(
-                        vk::ImageSubresourceRange::builder()
-                            .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                            .base_mip_level(i - 1)
-                            .level_count(1)
-                            .layer_count(1)
-                            .build(),
-                    )
-                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
-
-                self.device.cmd_pipeline_barrier(
-                    self.command_buffers[0],
-                    vk::PipelineStageFlags::TRANSFER, // TODO
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[image_barrier.build()],
-                );
-
-                let next_mip_width = if mip_width > 1 { mip_width / 2 } else { 1 };
-                let next_mip_height = if mip_height > 1 { mip_height / 2 } else { 1 };
-
-                let blit_info = vk::ImageBlit::builder()
-                    .src_offsets([
-                        vk::Offset3D { x: 0, y: 0, z: 0 },
-                        vk::Offset3D {
-                            x: mip_width,
-                            y: mip_height,
-                            z: 1,
-                        },
-                    ])
-                    .src_subresource(
-                        vk::ImageSubresourceLayers::builder()
-                            .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                            .mip_level(i - 1)
-                            .base_array_layer(0)
-                            .layer_count(1)
-                            .build(),
-                    )
-                    .dst_offsets([
-                        vk::Offset3D { x: 0, y: 0, z: 0 },
-                        vk::Offset3D {
-                            x: next_mip_width,
-                            y: next_mip_height,
-                            z: 1,
-                        },
-                    ])
-                    .dst_subresource(
-                        vk::ImageSubresourceLayers::builder()
-                            .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                            .mip_level(i)
-                            .base_array_layer(0)
-                            .layer_count(1)
-                            .build(),
-                    );
-
-                self.device.cmd_blit_image(
-                    self.command_buffers[0],
-                    self.image.borrow().unwrap(),
-                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                    self.image.borrow().unwrap(),
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    &[blit_info.build()],
-                    vk::Filter::LINEAR,
-                );
-
-                mip_width = next_mip_width;
-                mip_height = next_mip_height;
-            }
-
-            //////
-
-            let image_barrier = vk::ImageMemoryBarrier::builder()
-                .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                .image(self.image.borrow().unwrap())
-                .subresource_range(
-                    vk::ImageSubresourceRange::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                        .base_mip_level(target_mip_level)
-                        .level_count(1)
-                        .layer_count(1)
-                        .build(),
-                )
-                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
-
-            self.device.cmd_pipeline_barrier(
-                self.command_buffers[0],
-                vk::PipelineStageFlags::TRANSFER, // TODO
-                vk::PipelineStageFlags::TRANSFER,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[image_barrier.build()],
-            );
-
-            /////
-
-            let buffer_image_copy = vk::BufferImageCopy::builder()
-                .buffer_offset(0)
-                .buffer_row_length(0)
-                .buffer_image_height(0)
-                .image_subresource(
-                    vk::ImageSubresourceLayers::builder()
-                        .aspect_mask(vk::ImageAspectFlags::COLOR) // TODO color, base level and layer
-                        .mip_level(target_mip_level)
-                        .base_array_layer(0)
-                        .layer_count(1)
-                        .build(),
-                )
-                .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
-                .image_extent(vk::Extent3D {
-                    width: mip_width as u32,
-                    height: mip_height as u32,
-                    depth: 1,
-                });
-
-            self.device.cmd_copy_image_to_buffer(
-                self.command_buffers[0],
-                self.image.borrow().unwrap(),
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                self.buffer,
-                &[buffer_image_copy.build()],
-            );
-
-            //////
-
-            self.device.end_command_buffer(self.command_buffers[0])?;
-
-            let submit_info = vk::SubmitInfo::builder().command_buffers(&self.command_buffers);
-
-            self.device
-                .queue_submit(self.queue, &[submit_info.build()], self.fence)?;
-
-            self.device
-                .wait_for_fences(&[self.fence], true, 100000000)?;
-
-            let mem_ptr = self.device.map_memory(
-                self.buffer_memory,
-                0,
-                vk::WHOLE_SIZE,
-                vk::MemoryMapFlags::empty(),
-            )?;
-
-            let total = (mip_width * mip_height) as f64;
-            let s = std::slice::from_raw_parts(mem_ptr as *mut u8, total as usize * 4);
-
-            let (r, g, b) = s
-                .iter()
-                .chunks(4)
-                .into_iter()
-                .map(|mut chunk| {
-                    let r = chunk.next().unwrap();
-                    let g = chunk.next().unwrap();
-                    let b = chunk.next().unwrap();
-                    (*r as f64, *g as f64, *b as f64)
-                })
-                .fold1(|(rs, gs, bs), (r, g, b)| (rs + r, gs + g, bs + b))
-                .unwrap();
-            let (r, g, b) = (r / total, g / total, b / total);
-            let result = f64::sqrt(0.241 * r * r + 0.691 * g * g + 0.068 * b * b) / 255.0 * 100.0;
-
-            self.device.unmap_memory(self.buffer_memory);
-            self.device.reset_fences(&[self.fence])?;
-            self.device.destroy_image(frame_image, None);
-            self.device.free_memory(frame_image_memory, None);
-
-            Ok(result.round() as u8)
-        }
-    }
+fn image_dimensions(frame: &Object) -> (u32, u32, u32) {
+    let width = frame.width / 2;
+    let height = frame.height / 2;
+    let mip_levels = f64::max(width.into(), height.into()).log2().floor() as u32 + 1;
+    (width, height, mip_levels)
 }
