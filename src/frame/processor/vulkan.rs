@@ -7,7 +7,7 @@ use std::error::Error;
 use std::ffi::CString;
 use std::ops::Drop;
 
-const WLUMA_VERSION: u32 = vk::make_api_version(0, 2, 0, 0);
+const WLUMA_VERSION: u32 = vk::make_api_version(0, 2, 0, 1);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
 
 const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GPU is doing too poor of a job averaging the colors
