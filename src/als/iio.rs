@@ -34,7 +34,8 @@ impl Als {
                     .find(|e| {
                         fs::read_to_string(e.path().join("name"))
                             .unwrap_or_default()
-                            .starts_with("als")
+                            .trim()
+                            == "als"
                     })
                     .and_then(|e| {
                         parse_illuminance(e.path())
