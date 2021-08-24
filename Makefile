@@ -24,20 +24,21 @@ run:
 
 .PHONY: clean
 clean:
-	rm -rf target dist
+	rm -rf dist
 
 .PHONY: install
 install:
-	install -Dm755 -t "$(BIN_DIR)/" target/release/$(BIN)
-	install -Dm644 -t "$(LIB_DIR)/udev/rules.d/" 90-wluma-backlight.rules
+	install -Dm755 -t "$(BIN_DIR)/" "target/release/$(BIN)"
+	install -Dm644 -t "$(LIB_DIR)/udev/rules.d/" "90-$(BIN)-backlight.rules"
 	install -Dm644 -t "$(LIB_DIR)/systemd/user" "$(BIN).service"
 	install -Dm644 -t "$(SHARE_DIR)/licenses/$(BIN)/" LICENSE
 	install -Dm644 -t "$(SHARE_DIR)/doc/$(BIN)/" README.md
 	install -Dm644 -t "$(SHARE_DIR)/$(BIN)/examples/" config.toml
 
 .PHONY: dist
-dist: clean
+dist: clean build
 	mkdir -p dist
+	tar -czvf "dist/$(BIN)-$(VERSION)-linux-x86_64.tar.gz" "target/release/$(BIN)" 90-$(BIN)-backlight.rules "$(BIN).service" LICENSE README.md config.toml Makefile
 	git archive -o "dist/$(BIN)-$(VERSION).tar.gz" --format tar.gz --prefix "$(BIN)-$(VERSION)/" "$(VERSION)"
-	gpg --detach-sign --armor "dist/$(BIN)-$(VERSION).tar.gz"
+	for f in dist/*.tar.gz; do gpg --detach-sign --armor "$$f"; done
 	rm -f "dist/$(BIN)-$(VERSION).tar.gz"

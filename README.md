@@ -22,7 +22,13 @@ The app has minimal impact on system resources and battery life even though it i
 
 On Arch Linux you can use [wluma](https://aur.archlinux.org/packages/wluma/) or [wluma-git](https://aur.archlinux.org/packages/wluma-git/) packages.
 
-Alternatively, build using `make build` and install via `sudo make install`.
+Alternatively, download the [release artifact](https://github.com/maximbaz/wluma/releases) or build the app yourself, and then install it via `sudo make install`.
+
+## Build
+
+If you want to build the app yourself, make sure you use latest stable Rust - using `rustup` is perhaps the easiest.
+
+Then simply run `make build`.
 
 ## Permissions
 
