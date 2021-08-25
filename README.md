@@ -26,7 +26,9 @@ Alternatively, download the [release artifact](https://github.com/maximbaz/wluma
 
 ## Build
 
-If you want to build the app yourself, make sure you use latest stable Rust - using `rustup` is perhaps the easiest.
+[![CI](https://github.com/maximbaz/wluma/actions/workflows/ci.yml/badge.svg)](https://github.com/maximbaz/wluma/actions/workflows/ci.yml)
+
+If you want to build the app yourself, make sure you use latest stable Rust, otherwise you might get compilation errors! Using `rustup` is perhaps the easiest.
 
 Then simply run `make build`.
 
