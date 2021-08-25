@@ -98,9 +98,9 @@ impl Capturer {
                     data.destroy();
 
                     if reason == CancelReason::Permanent {
-                        panic!("Frame was cancelled due to a permanent error");
+                        panic!("Frame was cancelled due to a permanent error. If you just disconnected screen, this is not implemented yet.");
                     } else {
-                        eprintln!("Frame was cancelled due to a temporary error, will try again");
+                        eprintln!("Frame was cancelled due to a temporary error, will try again.");
                         thread::sleep(DELAY_FAILURE);
                         self.clone().capture_frame(controller.clone());
                     }

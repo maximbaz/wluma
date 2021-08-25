@@ -26,6 +26,7 @@ pub struct Processor {
     fence: vk::Fence,
     image: RefCell<Option<vk::Image>>,
     image_memory: RefCell<Option<vk::DeviceMemory>>,
+    image_resolution: RefCell<Option<(u32, u32)>>,
 }
 
 impl super::Processor for Processor {
@@ -35,10 +36,15 @@ impl super::Processor for Processor {
             "Frames with multiple objects are not supported yet"
         );
 
-        // TODO this assumes that screen resolution never changes :)
         if self.image.borrow().is_none() {
             self.init_image(frame)?;
         }
+        assert_eq!(
+            (frame.width, frame.height),
+            self.image_resolution.borrow().unwrap(),
+            "Handling screen resolution change is not supported yet"
+        );
+
         let image = self
             .image
             .borrow()
@@ -177,6 +183,7 @@ impl Processor {
             fence,
             image: RefCell::new(None),
             image_memory: RefCell::new(None),
+            image_resolution: RefCell::new(None),
         })
     }
 
@@ -214,6 +221,9 @@ impl Processor {
 
         self.image.borrow_mut().insert(image);
         self.image_memory.borrow_mut().insert(image_memory);
+        self.image_resolution
+            .borrow_mut()
+            .insert((frame.width, frame.height));
         Ok(())
     }
 

@@ -52,9 +52,13 @@ Choose whether to use a real IIO-based ambient light sensor (`[als.iio]`), a tim
 
 To run the app, simply launch `wluma` or use the provided systemd user service.
 
-## Caveats
+## Known issues (help wanted!)
 
-- Current drivers do not support importing images with custom DRM modifiers, this work [is being done in mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/1466). Until then, the only workaround is to use `WLR_DRM_NO_MODIFIERS=1` from wlroots.
+Help is wanted and much appreciated! If you want to implement some of these, feel free to open an issue and I'll provide more details and try to help you along the way.
+
+- Support for frames with custom DRM modifiers (e.g. multi-planar frames) is currently not implemented. This was recently [implemented in mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/1466) and can finally be added to `wluma`. Until then, a workaround is to export `WLR_DRM_NO_MODIFIERS=1` before launching your wlroots-based compositor.
+- Changing screen resolution while `wluma` is running is not supported yet, and should crash the app. Workaround: restart `wluma` after changing resolution.
+- Selecting screen is not implemented yet, on start `wluma` will pick one screen at random and use it. If the screen disappears (e.g. you launch `wluma` on laptop, then connect a docking station and disable internal screen), it should crash the app. Workaround: restart `wluma` after changing screens.
 
 ## Relevant projects
 
