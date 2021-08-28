@@ -18,6 +18,10 @@ build:
 test:
 	cargo test --locked
 
+.PHONY: lint
+lint:
+	cargo clippy
+
 .PHONY: run
 run:
 	cargo run

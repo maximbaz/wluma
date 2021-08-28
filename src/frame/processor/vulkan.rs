@@ -12,7 +12,7 @@ const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
 
 const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GPU is doing too poor of a job averaging the colors
 const BUFFER_PIXELS: u64 = 500 * 4; // Pre-allocated buffer size, should be enough to fit FINAL_MIP_LEVEL
-const FENCES_TIMEOUT_NS: u64 = 1000_000_000;
+const FENCES_TIMEOUT_NS: u64 = 1_000_000_000;
 
 pub struct Processor {
     _entry: Entry, // must keep reference to prevent early memory release
@@ -110,8 +110,7 @@ impl Processor {
 
         let physical_devices = unsafe { instance.enumerate_physical_devices()? };
         let physical_device = *physical_devices
-            .iter()
-            .next()
+            .get(0)
             .ok_or("Unable to find a physical device")?;
 
         let queue_family_index = 0;
@@ -275,6 +274,7 @@ impl Processor {
         Ok((frame_image, frame_image_memory))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_barrier(
         &self,
         image: &vk::Image,
@@ -314,6 +314,7 @@ impl Processor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn blit(
         &self,
         src_image: &vk::Image,

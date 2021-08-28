@@ -1,4 +1,4 @@
-use crate::controller::Controller;
+use crate::predictor::Controller;
 
 pub mod none;
 pub mod wlroots;

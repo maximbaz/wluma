@@ -3,9 +3,9 @@ use std::sync::mpsc;
 mod als;
 mod brightness;
 mod config;
-mod controller;
 mod device_file;
 mod frame;
+mod predictor;
 
 fn main() {
     let config = match config::Config::load() {
@@ -55,7 +55,7 @@ fn main() {
         brightness_controller.run().unwrap();
     });
 
-    let controller = controller::Controller::new(prediction_tx, user_rx, als, true);
+    let controller = predictor::Controller::new(prediction_tx, user_rx, als, true);
 
     println!("Continue adjusting brightness and wluma will learn your preference over time.");
     frame_capturer.run(controller);

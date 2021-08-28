@@ -1,6 +1,6 @@
-use crate::controller::Controller;
 use crate::frame::object::Object;
 use crate::frame::processor::Processor;
+use crate::predictor::Controller;
 use std::{cell::RefCell, rc::Rc, thread, time::Duration};
 use wayland_client::{
     protocol::wl_output::WlOutput, Display as WaylandDisplay, EventQueue, GlobalManager, Main,

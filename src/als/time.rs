@@ -14,8 +14,8 @@ impl Als {
                 .fold(Vec::<(u32, u64)>::new(), |mut acc, hour| {
                     let lux = hour_to_lux
                         .get(&hour.to_string())
-                        .map(|&v| v)
-                        .unwrap_or(acc.last().map(|&v| v.1).unwrap_or(0));
+                        .copied()
+                        .unwrap_or_else(|| acc.last().map(|&v| v.1).unwrap_or(0));
                     acc.push((hour, lux));
                     acc
                 })

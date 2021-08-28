@@ -12,5 +12,5 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - name: Run tests
-        run: make test
+      - name: Check code
+        run: make test lint

@@ -1,4 +1,4 @@
-use crate::controller::Controller;
+use crate::predictor::Controller;
 use std::{thread, time::Duration};
 
 #[derive(Default)]

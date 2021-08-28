@@ -1,6 +1,6 @@
 use crate::als::Als;
-use crate::controller::data::{Data, Entry};
-use crate::controller::kalman::Kalman;
+use crate::predictor::data::{Data, Entry};
+use crate::predictor::kalman::Kalman;
 use itertools::Itertools;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
@@ -70,11 +70,8 @@ impl Controller {
     }
 
     fn process(&mut self, lux: u64, luma: Option<u8>) {
-        let user_changed_brightness = self
-            .user_rx
-            .try_iter()
-            .last()
-            .or(self.initial_brightness.take());
+        let initial_brightness = self.initial_brightness.take();
+        let user_changed_brightness = self.user_rx.try_iter().last().or(initial_brightness);
 
         if let Some(brightness) = user_changed_brightness {
             self.pending = match &self.pending {
@@ -145,7 +142,7 @@ impl Controller {
     }
 
     fn predict(&mut self, lux: u64, luma: Option<u8>) {
-        if self.data.entries.len() == 0 {
+        if self.data.entries.is_empty() {
             return;
         }
 

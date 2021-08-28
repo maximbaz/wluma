@@ -44,7 +44,7 @@ impl Als {
                     })
             })
             .map(|sensor| Self { sensor, thresholds })
-            .ok_or("No iio device found".into())
+            .ok_or_else(|| "No iio device found".into())
     }
 
     fn get_raw(&self) -> Result<f64, Box<dyn Error>> {
@@ -90,6 +90,7 @@ fn parse_intensity(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
     })
 }
 
+#[allow(clippy::ptr_arg)]
 fn smoothen(raw_lux: u64, thresholds: &Vec<u64>) -> u64 {
     thresholds
         .iter()

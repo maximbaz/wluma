@@ -82,7 +82,7 @@ impl Config {
     pub fn load() -> Result<Self, toml::de::Error> {
         let config = dirs::config_dir()
             .and_then(|config_dir| fs::read_to_string(&config_dir.join("wluma/config.toml")).ok())
-            .unwrap_or(include_str!("../config.toml").to_string());
+            .unwrap_or_else(|| include_str!("../config.toml").to_string());
 
         toml::from_str(&config).map(|mut cfg: Self| {
             cfg.output = cfg
