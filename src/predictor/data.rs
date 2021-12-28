@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::fs::{File, OpenOptions};
+use std::fs::{create_dir_all, File, OpenOptions};
 use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
@@ -41,9 +41,11 @@ impl Data {
     }
 
     fn path() -> Result<PathBuf, Box<dyn Error>> {
-        Ok(dirs::data_dir()
+        let datadir = dirs::data_dir()
             .ok_or("Unable to get data dir")?
-            .join("wluma/data.yaml"))
+            .join("wluma");
+        create_dir_all(datadir.clone())?;
+        Ok(datadir.join("data.yaml"))
     }
 }
 
