@@ -218,11 +218,11 @@ impl Processor {
             self.device.bind_image_memory(image, image_memory, 0)?;
         }
 
-        self.image.borrow_mut().insert(image);
-        self.image_memory.borrow_mut().insert(image_memory);
+        self.image.borrow_mut().replace(image);
+        self.image_memory.borrow_mut().replace(image_memory);
         self.image_resolution
             .borrow_mut()
-            .insert((frame.width, frame.height));
+            .replace((frame.width, frame.height));
         Ok(())
     }
 
