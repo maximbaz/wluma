@@ -551,7 +551,7 @@ fn compute_perceived_lightness_percent(rgbas: &[u8], pixels: usize) -> u8 {
             let b = *chunk.next().unwrap();
             (r as f64, g as f64, b as f64)
         })
-        .fold1(|(rs, gs, bs), (r, g, b)| (rs + r, gs + g, bs + b))
+        .reduce(|(rs, gs, bs), (r, g, b)| (rs + r, gs + g, bs + b))
         .unwrap();
 
     let pixels = pixels as f64;
