@@ -26,7 +26,7 @@ impl Als {
 }
 
 impl super::Als for Als {
-    fn get(&self) -> Result<u64, Box<dyn Error>> {
+    fn get(&mut self) -> Result<u64, Box<dyn Error>> {
         Ok(*self
             .hour_to_lux
             .get(&Local::now().hour())

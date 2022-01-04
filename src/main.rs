@@ -12,6 +12,7 @@ fn main() {
         Ok(config) => config,
         Err(err) => panic!("Unable to load config: {}", err),
     };
+
     println!("Using config: {:?}", config);
 
     let als: Box<dyn als::Als> = match config.als {
@@ -19,6 +20,16 @@ fn main() {
             als::iio::Als::new(&path, thresholds).expect("Unable to initialize ALS IIO sensor"),
         ),
         config::Als::Time { ref hour_to_lux } => Box::new(als::time::Als::new(hour_to_lux)),
+        config::Als::Webcam { video, thresholds } => Box::new({
+            let (webcam_tx, webcam_rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                als::webcam::Webcam::new(webcam_tx, video)
+                    .run()
+                    .expect("Error running ALS webcam background thread");
+            });
+
+            als::webcam::Als::new(webcam_rx, thresholds)
+        }),
         config::Als::None => Box::new(als::none::Als::default()),
     };
 
@@ -52,7 +63,9 @@ fn main() {
         let mut brightness_controller =
             brightness::Controller::new(brightness, user_tx, prediction_rx);
 
-        brightness_controller.run().unwrap();
+        brightness_controller
+            .run()
+            .expect("Error running brightness controller thread");
     });
 
     let controller = predictor::Controller::new(prediction_tx, user_rx, als, true);

@@ -26,6 +26,7 @@ pub struct Frame {
 pub enum Als {
     Iio { path: String, thresholds: Vec<u64> },
     Time { hour_to_lux: HashMap<String, u64> },
+    Webcam { video: usize, thresholds: Vec<u64> },
     None,
 }
 

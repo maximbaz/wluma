@@ -44,9 +44,11 @@ The `config.toml` in repository represents default config values. To change them
 
 ### ALS
 
-Choose whether to use a real IIO-based ambient light sensor (`[als.iio]`), a time-based simulation (`[als.time]`) or disable it altogether (`[als.none]`).
+Choose whether to use a real IIO-based ambient light sensor (`[als.iio]`), a webcam-based simulation (`[als.webcam]`), a time-based simulation (`[als.time]`) or disable it altogether (`[als.none]`).
 
 `[als.iio]` contains a `thresholds` field, which comes with good default values. It is there to convert a generally exponential lux values into a linear scale to improve the prediction algorithm in `wluma`. A value of `[100, 200]` would mean that a raw lux value of `0..100` would get converted to `0`, a value of `100..200` would get converted to `1`, and `200+` would get converted to `2`.
+
+`[als.webcam]` contains a `video` field corresponding to your device (e.g. `0` for `/dev/video0`), as well as a `thresholds` field, just like in `[als.iio]`, which maps "perceived lightness" percentage (0..100) calculated from the webcam frame to a smaller subset of values (default value is recommended).
 
 `[als.time]` contains a `time_to_lux` mapping, which allows you to express how bright or dark it gets as the day passes by. This mode is primarily meant to let people who don't have a real ALS to try the app and get some meaningful results. Use linear smooth lux values, not raw ones - a range of `0..5` is recommended. A mapping of `{ 3 = 1, 7 = 2, 21 = 0 }` means that from `00:00` until `02:59` a value would be `0`, from `03:00` until `06:59` the value would be `2`, from `07:00` until `20:59` the value would be `2`, and finally between `21:00` and `23:59` the value would again be `0`.
 
