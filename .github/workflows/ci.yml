@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - run: sudo apt-get -y install v4l-utils libv4l-dev
       - run: make test
 
   lint:
@@ -18,4 +19,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - run: sudo apt-get -y install v4l-utils libv4l-dev
       - run: make lint

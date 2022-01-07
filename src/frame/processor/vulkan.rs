@@ -1,6 +1,6 @@
+use crate::frame::compute_perceived_lightness_percent;
 use crate::frame::object::Object;
 use ash::{vk, Device, Entry, Instance};
-use itertools::Itertools;
 use std::cell::RefCell;
 use std::default::Default;
 use std::error::Error;
@@ -72,7 +72,7 @@ impl super::Processor for Processor {
             std::slice::from_raw_parts(buffer_pointer as *mut u8, pixels * 4)
         };
 
-        let result = compute_perceived_lightness_percent(rgbas, pixels);
+        let result = compute_perceived_lightness_percent(rgbas, true, pixels);
 
         unsafe {
             self.device.unmap_memory(self.buffer_memory);
@@ -538,28 +538,6 @@ impl Drop for Processor {
             self.instance.destroy_instance(None);
         }
     }
-}
-
-fn compute_perceived_lightness_percent(rgbas: &[u8], pixels: usize) -> u8 {
-    let (rs, gs, bs) = rgbas
-        .iter()
-        .chunks(4) // ignore alpha, it's always 255 and we don't use it in calculations anyway
-        .into_iter()
-        .map(|mut chunk| {
-            let r = *chunk.next().unwrap();
-            let g = *chunk.next().unwrap();
-            let b = *chunk.next().unwrap();
-            (r as f64, g as f64, b as f64)
-        })
-        .reduce(|(rs, gs, bs), (r, g, b)| (rs + r, gs + g, bs + b))
-        .unwrap();
-
-    let pixels = pixels as f64;
-    let (r, g, b) = (rs / pixels, gs / pixels, bs / pixels);
-
-    let result = (0.241 * r * r + 0.691 * g * g + 0.068 * b * b).sqrt() / 255.0 * 100.0;
-
-    result.round() as u8
 }
 
 fn image_dimensions(frame: &Object) -> (u32, u32, u32) {

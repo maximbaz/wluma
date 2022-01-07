@@ -1,5 +1,5 @@
 mod controller;
 mod data;
-mod kalman;
+pub mod kalman;
 
 pub use controller::Controller;
