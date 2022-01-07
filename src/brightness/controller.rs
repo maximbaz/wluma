@@ -246,7 +246,7 @@ mod tests {
             .expect_set()
             .with(predicate::eq(12))
             .times(1)
-            .returning(|x| Ok(x));
+            .returning(Ok);
         let (mut controller, _, _) = setup(brightness_mock);
         controller.current = 10;
         controller.target = Some(target(20, 2));
@@ -264,7 +264,7 @@ mod tests {
             .expect_set()
             .with(predicate::eq(9))
             .times(1)
-            .returning(|x| Ok(x));
+            .returning(Ok);
         let (mut controller, _, _) = setup(brightness_mock);
         controller.current = 10;
         controller.target = Some(target(9, -1));
@@ -282,7 +282,7 @@ mod tests {
             .expect_set()
             .with(predicate::eq(0))
             .times(1)
-            .returning(|x| Ok(x));
+            .returning(Ok);
         let (mut controller, _, _) = setup(brightness_mock);
         controller.current = 1;
         controller.target = Some(target(0, -2)); // step of -2 should not overshoot
