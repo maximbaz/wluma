@@ -45,30 +45,34 @@ impl Controller {
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         loop {
-            self.step()?;
+            self.step();
         }
     }
 
-    fn step(&mut self) -> Result<(), Box<dyn Error>> {
+    fn step(&mut self) {
         // 1. check if user wants to learn a new value - this overrides any ongoing activity
-        let new_brightness = self.brightness.get()?;
-        if new_brightness != self.current {
-            return self.update_current(new_brightness);
-        }
+        if let Ok(new_brightness) = self.brightness.get() {
+            if new_brightness != self.current {
+                self.update_current(new_brightness)
+                    .expect("Can't update current brightness");
+                return;
+            }
 
-        // 2. check if predictor wants to set a new value
-        if let Some(desired) = self.prediction_rx.try_iter().last() {
-            self.update_target(desired);
-        }
+            // 2. check if predictor wants to set a new value
+            if let Some(desired) = self.prediction_rx.try_iter().last() {
+                self.update_target(desired);
+            }
 
-        // 3. continue the transition if there is one in progress
-        if self.target.is_some() {
-            return self.transition();
+            // 3. continue the transition if there is one in progress
+            if self.target.is_some() {
+                if let Err(err) = self.transition() {
+                    println!("Can't transition brightness: {:?}", err);
+                };
+                return;
+            }
         }
-
         // 4. nothing to do, sleep and check again
         thread::sleep(Duration::from_millis(WAITING_SLEEP_MS));
-        Ok(())
     }
 
     fn update_current(&mut self, new_brightness: u64) -> Result<(), Box<dyn Error>> {
