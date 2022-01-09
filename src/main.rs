@@ -25,9 +25,7 @@ fn main() {
         config::Als::Webcam { video, thresholds } => Box::new({
             let (webcam_tx, webcam_rx) = mpsc::channel();
             std::thread::spawn(move || {
-                als::webcam::Webcam::new(webcam_tx, video)
-                    .run()
-                    .expect("Error running ALS webcam background thread");
+                als::webcam::Webcam::new(webcam_tx, video).run();
             });
 
             als::webcam::Als::new(webcam_rx, thresholds)
@@ -54,13 +52,17 @@ fn main() {
     let config_outputs = config.output.clone();
 
     std::thread::spawn(move || {
-        let brightness = match config_outputs.iter().next().unwrap().1 {
-            config::Output::Backlight(cfg) => Box::new(
-                brightness::Backlight::new(&cfg.path)
-                    .expect("Unable to initialize output backlight"),
-            ),
-            _ => unimplemented!("Only backlight-controlled outputs are supported"),
-        };
+        let brightness: Box<dyn brightness::Brightness> =
+            match config_outputs.iter().next().unwrap().1 {
+                config::Output::Backlight(cfg) => Box::new(
+                    brightness::Backlight::new(&cfg.path)
+                        .expect("Unable to initialize output backlight"),
+                ),
+                config::Output::DdcUtil(cfg) => Box::new(
+                    brightness::DdcUtil::new(&cfg.serial_number)
+                        .expect("Unable to initialize output ddcutil"),
+                ),
+            };
 
         let mut brightness_controller =
             brightness::Controller::new(brightness, user_tx, prediction_rx);

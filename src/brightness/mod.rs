@@ -3,9 +3,11 @@ use std::error::Error;
 
 mod backlight;
 mod controller;
+mod ddcutil;
 
 pub use backlight::Backlight;
 pub use controller::Controller;
+pub use ddcutil::DdcUtil;
 
 #[automock]
 pub trait Brightness {

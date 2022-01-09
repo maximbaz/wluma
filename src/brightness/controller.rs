@@ -45,37 +45,41 @@ impl Controller {
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         loop {
-            self.step()?;
+            self.step();
         }
     }
 
-    fn step(&mut self) -> Result<(), Box<dyn Error>> {
-        // 1. check if user wants to learn a new value - this overrides any ongoing activity
-        let new_brightness = self.brightness.get()?;
-        if new_brightness != self.current {
-            return self.update_current(new_brightness);
-        }
+    fn step(&mut self) {
+        match self.brightness.get() {
+            Ok(new_brightness) => {
+                // 1. check if user wants to learn a new value - this overrides any ongoing activity
+                if new_brightness != self.current {
+                    return self.update_current(new_brightness);
+                }
 
-        // 2. check if predictor wants to set a new value
-        if let Some(desired) = self.prediction_rx.try_iter().last() {
-            self.update_target(desired);
-        }
+                // 2. check if predictor wants to set a new value
+                if let Some(desired) = self.prediction_rx.try_iter().last() {
+                    self.update_target(desired);
+                }
 
-        // 3. continue the transition if there is one in progress
-        if self.target.is_some() {
-            return self.transition();
-        }
+                // 3. continue the transition if there is one in progress
+                if self.target.is_some() {
+                    return self.transition();
+                }
+            }
+            Err(err) => log::error!("Unable to get brightness value: {:?}", err),
+        };
 
         // 4. nothing to do, sleep and check again
         thread::sleep(Duration::from_millis(WAITING_SLEEP_MS));
-        Ok(())
     }
 
-    fn update_current(&mut self, new_brightness: u64) -> Result<(), Box<dyn Error>> {
+    fn update_current(&mut self, new_brightness: u64) {
         self.current = new_brightness;
-        self.user_tx.send(new_brightness)?;
+        self.user_tx
+            .send(new_brightness)
+            .expect("Unable to send new brightness value set by user, channel is dead");
         self.target = None;
-        Ok(())
     }
 
     fn update_target(&mut self, desired: u64) {
@@ -93,18 +97,23 @@ impl Controller {
         };
     }
 
-    fn transition(&mut self) -> Result<(), Box<dyn Error>> {
+    fn transition(&mut self) {
         if let Some(target) = &self.target {
             if target.reached(self.current) {
                 self.target = None;
             } else {
                 let new_value = (self.current as i64 + target.step).max(0) as u64;
-                self.current = self.brightness.set(new_value)?;
+                match self.brightness.set(new_value) {
+                    Ok(current) => self.current = current,
+                    Err(err) => log::error!(
+                        "Unable to set brightness to value '{}': {:?}",
+                        new_value,
+                        err
+                    ),
+                };
                 thread::sleep(Duration::from_millis(TRANSITION_STEP_MS));
             }
         }
-
-        Ok(())
     }
 }
 
@@ -141,7 +150,7 @@ mod tests {
         prediction_tx.send(37)?;
 
         // when we execute the first step...
-        controller.step()?;
+        controller.step();
 
         // a real current brightness level is respected and sent to predictor
         assert_eq!(42, controller.current);
@@ -167,7 +176,7 @@ mod tests {
         controller.target = Some(target(77, 1));
 
         // when we execute the next step...
-        controller.step()?;
+        controller.step();
 
         // we notice a change in brightness made by user and that takes priority
         assert_eq!(42, controller.current);
@@ -228,19 +237,18 @@ mod tests {
     }
 
     #[test]
-    fn test_transition_reset_target_when_reached() -> Result<(), Box<dyn Error>> {
+    fn test_transition_reset_target_when_reached() {
         let (mut controller, _, _) = setup(MockBrightness::new());
         controller.current = 10;
         controller.target = Some(target(10, 20));
 
-        controller.transition()?;
+        controller.transition();
 
         assert_eq!(None, controller.target);
-        Ok(())
     }
 
     #[test]
-    fn test_transition_increases_brightness_with_next_step() -> Result<(), Box<dyn Error>> {
+    fn test_transition_increases_brightness_with_next_step() {
         let mut brightness_mock = MockBrightness::new();
         brightness_mock
             .expect_set()
@@ -251,14 +259,13 @@ mod tests {
         controller.current = 10;
         controller.target = Some(target(20, 2));
 
-        controller.transition()?;
+        controller.transition();
 
         assert_eq!(12, controller.current);
-        Ok(())
     }
 
     #[test]
-    fn test_transition_decreases_brightness_with_next_step() -> Result<(), Box<dyn Error>> {
+    fn test_transition_decreases_brightness_with_next_step() {
         let mut brightness_mock = MockBrightness::new();
         brightness_mock
             .expect_set()
@@ -269,14 +276,13 @@ mod tests {
         controller.current = 10;
         controller.target = Some(target(9, -1));
 
-        controller.transition()?;
+        controller.transition();
 
         assert_eq!(9, controller.current);
-        Ok(())
     }
 
     #[test]
-    fn test_transition_doesnt_decrease_below_0() -> Result<(), Box<dyn Error>> {
+    fn test_transition_doesnt_decrease_below_0() {
         let mut brightness_mock = MockBrightness::new();
         brightness_mock
             .expect_set()
@@ -287,10 +293,9 @@ mod tests {
         controller.current = 1;
         controller.target = Some(target(0, -2)); // step of -2 should not overshoot
 
-        controller.transition()?;
+        controller.transition();
 
         assert_eq!(0, controller.current);
-        Ok(())
     }
 
     #[test]

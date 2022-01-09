@@ -183,7 +183,9 @@ impl Controller {
             .map(|p| p.0 * p.2 / distance_denominator)
             .sum();
 
-        self.prediction_tx.send(prediction as u64).unwrap();
+        self.prediction_tx
+            .send(prediction as u64)
+            .expect("Unable to send predicted brightness value, channel is dead");
     }
 }
 
@@ -196,17 +198,17 @@ mod tests {
     use std::error::Error;
     use std::sync::mpsc;
 
-    fn setup() -> (Controller, Sender<u64>, Receiver<u64>) {
+    fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>), Box<dyn Error>> {
         let (user_tx, user_rx) = mpsc::channel();
         let (prediction_tx, prediction_rx) = mpsc::channel();
-        user_tx.send(0).unwrap();
+        user_tx.send(0)?;
         let controller = Controller::new(prediction_tx, user_rx, Box::new(MockAls::new()), false);
-        (controller, user_tx, prediction_rx)
+        Ok((controller, user_tx, prediction_rx))
     }
 
     #[test]
     fn test_process_first_user_change() -> Result<(), Box<dyn Error>> {
-        let (mut controller, user_tx, _) = setup();
+        let (mut controller, user_tx, _) = setup()?;
 
         // User changes brightness to value 33 for a given lux and luma
         user_tx.send(33)?;
@@ -220,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_process_several_continuous_user_changes() -> Result<(), Box<dyn Error>> {
-        let (mut controller, user_tx, _) = setup();
+        let (mut controller, user_tx, _) = setup()?;
 
         // User initiates brightness change for a given lux and luma to value 33...
         user_tx.send(33)?;
@@ -241,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_process_learns_user_change_after_cooldown() -> Result<(), Box<dyn Error>> {
-        let (mut controller, user_tx, _) = setup();
+        let (mut controller, user_tx, _) = setup()?;
 
         // User changes brightness to a desired value
         user_tx.send(33)?;
@@ -280,8 +282,8 @@ mod tests {
     // | brighter screen | same or dimmer  | same or dimmer   | any              |
 
     #[test]
-    fn test_learn_data_cleanup() {
-        let (mut controller, _, _) = setup();
+    fn test_learn_data_cleanup() -> Result<(), Box<dyn Error>> {
+        let (mut controller, _, _) = setup()?;
 
         let pending = Entry::new(10, Some(20), 30);
 
@@ -334,22 +336,26 @@ mod tests {
             controller.data.entries.len(),
             "duplicate entries remained"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_predict_no_data_points() {
-        let (mut controller, _, prediction_rx) = setup();
+    fn test_predict_no_data_points() -> Result<(), Box<dyn Error>> {
+        let (mut controller, _, prediction_rx) = setup()?;
         controller.data.entries = vec![];
 
         // predict() should not be called with no data, but just in case confirm we don't panic
         controller.predict(10, Some(20));
 
         assert_eq!(true, prediction_rx.try_recv().is_err());
+
+        Ok(())
     }
 
     #[test]
     fn test_predict_one_data_point() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup();
+        let (mut controller, _, prediction_rx) = setup()?;
         controller.data.entries = vec![Entry::new(5, Some(10), 15)];
 
         controller.predict(10, Some(20));
@@ -360,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_predict_known_conditions() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup();
+        let (mut controller, _, prediction_rx) = setup()?;
         controller.data.entries = vec![Entry::new(5, Some(10), 15), Entry::new(10, Some(20), 30)];
 
         controller.predict(10, Some(20));
@@ -371,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_predict_approximate() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup();
+        let (mut controller, _, prediction_rx) = setup()?;
         controller.data.entries = vec![
             Entry::new(5, Some(10), 15),
             Entry::new(10, Some(20), 30),

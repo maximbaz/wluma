@@ -30,22 +30,23 @@ impl Webcam {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn run(&mut self) {
         loop {
-            self.step()?;
+            self.step();
         }
     }
 
-    fn step(&mut self) -> Result<(), Box<dyn Error>> {
+    fn step(&mut self) {
         if let Ok((rgbs, pixels)) = self.frame() {
             let lux_raw = compute_perceived_lightness_percent(&rgbs, false, pixels) as u64;
             let lux = self.kalman.process(lux_raw);
 
-            self.webcam_tx.send(lux)?;
+            self.webcam_tx
+                .send(lux)
+                .expect("Unable to send new webcam lux value, channel is dead");
         };
 
         thread::sleep(Duration::from_millis(WAITING_SLEEP_MS));
-        Ok(())
     }
 
     fn frame(&mut self) -> Result<(Vec<u8>, usize), Box<dyn Error>> {
@@ -80,12 +81,13 @@ impl Als {
 
 impl super::Als for Als {
     fn get_raw(&self) -> Result<u64, Box<dyn Error>> {
-        *self.lux.borrow_mut() = self
+        let new_value = self
             .webcam_rx
             .try_iter()
             .last()
             .unwrap_or(*self.lux.borrow());
-        Ok(*self.lux.borrow())
+        *self.lux.borrow_mut() = new_value;
+        Ok(new_value)
     }
 
     fn smoothen(&self, raw: u64) -> u64 {
