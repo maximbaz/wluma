@@ -40,7 +40,7 @@ impl super::Brightness for DdcUtil {
 }
 
 fn get_max_brightness(display: &mut Display) -> Result<u64, Box<dyn Error>> {
-    Ok(display.handle.get_vcp_feature(0x10).unwrap().maximum() as u64)
+    Ok(display.handle.get_vcp_feature(0x10)?.maximum() as u64)
 }
 
 fn find_display_by_sn(serial_number: &str) -> Option<Display> {
