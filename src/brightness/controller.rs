@@ -66,7 +66,7 @@ impl Controller {
             // 3. continue the transition if there is one in progress
             if self.target.is_some() {
                 if let Err(err) = self.transition() {
-                    println!("Can't transition brightness: {:?}", err);
+                    log::error!("Can't transition brightness: {:?}", err);
                 };
                 return;
             }
