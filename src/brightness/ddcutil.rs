@@ -1,6 +1,8 @@
-use ddc_hi::{Ddc, Display};
+use ddc_hi::{Ddc, Display, FeatureCode};
 use std::cell::RefCell;
 use std::error::Error;
+
+const DDC_BRIGHTNESS_FEATURE: FeatureCode = 0x10;
 
 pub struct DdcUtil {
     display: RefCell<Display>,
@@ -25,7 +27,7 @@ impl super::Brightness for DdcUtil {
             .display
             .borrow_mut()
             .handle
-            .get_vcp_feature(0x10)?
+            .get_vcp_feature(DDC_BRIGHTNESS_FEATURE)?
             .value() as u64)
     }
 
@@ -34,13 +36,16 @@ impl super::Brightness for DdcUtil {
         self.display
             .borrow_mut()
             .handle
-            .set_vcp_feature(0x10, value as u16)?;
+            .set_vcp_feature(DDC_BRIGHTNESS_FEATURE, value as u16)?;
         Ok(value)
     }
 }
 
 fn get_max_brightness(display: &mut Display) -> Result<u64, Box<dyn Error>> {
-    Ok(display.handle.get_vcp_feature(0x10)?.maximum() as u64)
+    Ok(display
+        .handle
+        .get_vcp_feature(DDC_BRIGHTNESS_FEATURE)?
+        .maximum() as u64)
 }
 
 fn find_display_by_sn(serial_number: &str) -> Option<Display> {
