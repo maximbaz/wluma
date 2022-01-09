@@ -16,3 +16,5 @@ ash = "0.33"
 itertools = "0.10"
 mockall = "0.10"
 v4l = { version = "0.12", features = ["libv4l"], default-features = false }
+log = "0.4"
+env_logger = "0.9"

@@ -8,7 +8,18 @@ pub mod webcam;
 
 #[automock]
 pub trait Als {
-    fn get(&mut self) -> Result<u64, Box<dyn Error>>;
+    fn get_raw(&self) -> Result<u64, Box<dyn Error>>;
+
+    fn smoothen(&self, raw: u64) -> u64 {
+        raw
+    }
+
+    fn get(&self) -> Result<u64, Box<dyn Error>> {
+        let raw = self.get_raw()?;
+        let value = self.smoothen(raw);
+        log::trace!("ALS value: {} (raw: {})", value, raw);
+        Ok(value)
+    }
 }
 
 #[allow(clippy::ptr_arg)]

@@ -1,6 +1,7 @@
 use crate::als::smoothen;
 use crate::frame::compute_perceived_lightness_percent;
 use crate::predictor::kalman::Kalman;
+use std::cell::RefCell;
 use std::error::Error;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -64,7 +65,7 @@ impl Webcam {
 pub struct Als {
     webcam_rx: Receiver<u64>,
     thresholds: Vec<u64>,
-    lux: u64,
+    lux: RefCell<u64>,
 }
 
 impl Als {
@@ -72,14 +73,22 @@ impl Als {
         Self {
             webcam_rx,
             thresholds,
-            lux: DEFAULT_LUX,
+            lux: RefCell::new(DEFAULT_LUX),
         }
     }
 }
 
 impl super::Als for Als {
-    fn get(&mut self) -> Result<u64, Box<dyn Error>> {
-        self.lux = self.webcam_rx.try_iter().last().unwrap_or(self.lux);
-        Ok(smoothen(self.lux, &self.thresholds))
+    fn get_raw(&self) -> Result<u64, Box<dyn Error>> {
+        *self.lux.borrow_mut() = self
+            .webcam_rx
+            .try_iter()
+            .last()
+            .unwrap_or(*self.lux.borrow());
+        Ok(*self.lux.borrow())
+    }
+
+    fn smoothen(&self, raw: u64) -> u64 {
+        smoothen(raw, &self.thresholds)
     }
 }

@@ -8,12 +8,14 @@ mod frame;
 mod predictor;
 
 fn main() {
+    env_logger::init();
+
     let config = match config::Config::load() {
         Ok(config) => config,
         Err(err) => panic!("Unable to load config: {}", err),
     };
 
-    println!("Using config: {:?}", config);
+    log::debug!("Using config: {:?}", config);
 
     let als: Box<dyn als::Als> = match config.als {
         config::Als::Iio { path, thresholds } => Box::new(

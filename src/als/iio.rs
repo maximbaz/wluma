@@ -47,8 +47,10 @@ impl Als {
             .map(|sensor| Self { sensor, thresholds })
             .ok_or_else(|| "No iio device found".into())
     }
+}
 
-    fn get_raw(&self) -> Result<f64, Box<dyn Error>> {
+impl super::Als for Als {
+    fn get_raw(&self) -> Result<u64, Box<dyn Error>> {
         Ok(match self.sensor {
             Illuminance {
                 ref value,
@@ -65,13 +67,11 @@ impl Als {
                     + 1.57837 * read(&mut g.lock().unwrap())?
                     + -0.73191 * read(&mut b.lock().unwrap())?
             }
-        })
+        } as u64)
     }
-}
 
-impl super::Als for Als {
-    fn get(&mut self) -> Result<u64, Box<dyn Error>> {
-        Ok(smoothen(self.get_raw()? as u64, &self.thresholds))
+    fn smoothen(&self, raw: u64) -> u64 {
+        smoothen(raw, &self.thresholds)
     }
 }
 
