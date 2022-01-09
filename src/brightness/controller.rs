@@ -145,7 +145,7 @@ mod tests {
         prediction_tx.send(37)?;
 
         // when we execute the first step...
-        controller.step()?;
+        controller.step();
 
         // a real current brightness level is respected and sent to predictor
         assert_eq!(42, controller.current);
@@ -171,7 +171,7 @@ mod tests {
         controller.target = Some(target(77, 1));
 
         // when we execute the next step...
-        controller.step()?;
+        controller.step();
 
         // we notice a change in brightness made by user and that takes priority
         assert_eq!(42, controller.current);

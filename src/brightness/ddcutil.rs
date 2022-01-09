@@ -1,9 +1,9 @@
-use ddc_hi;
 use ddc_hi::{Ddc, Display};
+use std::cell::RefCell;
 use std::error::Error;
 
 pub struct DdcUtil {
-    display: Display,
+    display: RefCell<Display>,
     max_brightness: u64,
 }
 
@@ -13,20 +13,28 @@ impl DdcUtil {
         let max_brightness = get_max_brightness(&mut display)?;
 
         Ok(Self {
-            display,
+            display: RefCell::new(display),
             max_brightness,
         })
     }
 }
 
 impl super::Brightness for DdcUtil {
-    fn get(&mut self) -> Result<u64, Box<dyn Error>> {
-        Ok(self.display.handle.get_vcp_feature(0x10)?.value() as u64)
+    fn get(&self) -> Result<u64, Box<dyn Error>> {
+        Ok(self
+            .display
+            .borrow_mut()
+            .handle
+            .get_vcp_feature(0x10)?
+            .value() as u64)
     }
 
-    fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
+    fn set(&self, value: u64) -> Result<u64, Box<dyn Error>> {
         let value = value.max(1).min(self.max_brightness);
-        self.display.handle.set_vcp_feature(0x10, value as u16)?;
+        self.display
+            .borrow_mut()
+            .handle
+            .set_vcp_feature(0x10, value as u16)?;
         Ok(value)
     }
 }
