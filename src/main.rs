@@ -25,9 +25,7 @@ fn main() {
         config::Als::Webcam { video, thresholds } => Box::new({
             let (webcam_tx, webcam_rx) = mpsc::channel();
             std::thread::spawn(move || {
-                als::webcam::Webcam::new(webcam_tx, video)
-                    .run()
-                    .expect("Error running ALS webcam background thread");
+                als::webcam::Webcam::new(webcam_tx, video).run();
             });
 
             als::webcam::Als::new(webcam_rx, thresholds)
