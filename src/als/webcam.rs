@@ -81,13 +81,13 @@ impl Als {
 
 impl super::Als for Als {
     fn get_raw(&self) -> Result<u64, Box<dyn Error>> {
-        let value = self
+        let new_value = self
             .webcam_rx
             .try_iter()
             .last()
             .unwrap_or(*self.lux.borrow());
-        *self.lux.borrow_mut() = value;
-        Ok(value)
+        *self.lux.borrow_mut() = new_value;
+        Ok(new_value)
     }
 
     fn smoothen(&self, raw: u64) -> u64 {
