@@ -94,3 +94,70 @@ impl super::Als for Als {
         smoothen(raw, &self.thresholds)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::Als as AlsTrait;
+    use super::*;
+
+    use std::sync::mpsc;
+
+    fn setup() -> (Als, Sender<u64>) {
+        let (webcam_tx, webcam_rx) = mpsc::channel();
+        let als = Als::new(webcam_rx, vec![]);
+        (als, webcam_tx)
+    }
+
+    #[test]
+    fn test_get_raw_if_initial_value_is_the_good() -> Result<(), Box<dyn Error>> {
+        let (als, _) = setup();
+        let value = als.get_raw()?;
+        // we dont send data to the channel
+        // so this should return the default lux value
+        assert_eq!(DEFAULT_LUX, value);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_raw_if_received_data_the_are_those_send_before() -> Result<(), Box<dyn Error>> {
+        let (als, webcam_tx) = setup();
+        // until we send data
+        webcam_tx.send(42)?;
+        // and this well return the same data
+        let value = als.get_raw()?;
+        assert_eq!(42, value);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_raw_if_data_is_the_same_if_we_receive_twice() -> Result<(), Box<dyn Error>> {
+        let (als, webcam_tx) = setup();
+        webcam_tx.send(42)?;
+        // and what happen if we receive
+        // the data twice? this must return the last value:
+        // receive one time
+        let value = als.get_raw()?;
+        // we receive value...
+        assert_eq!(42, value);
+        // ...receive two time
+        let value = als.get_raw()?;
+        // we receive the same value
+        assert_eq!(42, value);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_raw_if_when_sending_twice_a_row_we_receive_well_the_last(
+    ) -> Result<(), Box<dyn Error>> {
+        let (als, webcam_tx) = setup();
+        // and now we send quickly two data
+        webcam_tx.send(43)?;
+        webcam_tx.send(44)?;
+        // ...and we receive just one
+        // we got the last data
+        let value = als.get_raw()?;
+        assert_eq!(44, value);
+
+        Ok(())
+    }
+}
