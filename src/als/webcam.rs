@@ -94,3 +94,60 @@ impl super::Als for Als {
         smoothen(raw, &self.thresholds)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::Als as AlsTrait;
+    use super::*;
+    use std::sync::mpsc;
+
+    fn setup() -> (Als, Sender<u64>) {
+        let (webcam_tx, webcam_rx) = mpsc::channel();
+        let als = Als::new(webcam_rx, vec![]);
+        (als, webcam_tx)
+    }
+
+    #[test]
+    fn test_get_raw_returns_default_value_when_no_data_from_webcam() -> Result<(), Box<dyn Error>> {
+        let (als, _) = setup();
+
+        assert_eq!(DEFAULT_LUX, als.get_raw()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_raw_returns_value_from_webcam() -> Result<(), Box<dyn Error>> {
+        let (als, webcam_tx) = setup();
+
+        webcam_tx.send(42)?;
+
+        assert_eq!(42, als.get_raw()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_raw_returns_most_recent_value_from_webcam() -> Result<(), Box<dyn Error>> {
+        let (als, webcam_tx) = setup();
+
+        webcam_tx.send(42)?;
+        webcam_tx.send(43)?;
+        webcam_tx.send(44)?;
+
+        assert_eq!(44, als.get_raw()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_raw_returns_last_known_value_from_webcam_when_no_new_data(
+    ) -> Result<(), Box<dyn Error>> {
+        let (als, webcam_tx) = setup();
+
+        webcam_tx.send(42)?;
+        webcam_tx.send(43)?;
+
+        assert_eq!(43, als.get_raw()?);
+        assert_eq!(43, als.get_raw()?);
+        assert_eq!(43, als.get_raw()?);
+        Ok(())
+    }
+}
