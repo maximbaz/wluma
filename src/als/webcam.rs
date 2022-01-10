@@ -99,7 +99,6 @@ impl super::Als for Als {
 mod tests {
     use super::super::Als as AlsTrait;
     use super::*;
-
     use std::sync::mpsc;
 
     fn setup() -> (Als, Sender<u64>) {
@@ -109,55 +108,46 @@ mod tests {
     }
 
     #[test]
-    fn test_get_raw_if_initial_value_is_the_good() -> Result<(), Box<dyn Error>> {
+    fn test_get_raw_returns_default_value_when_no_data_from_webcam() -> Result<(), Box<dyn Error>> {
         let (als, _) = setup();
-        let value = als.get_raw()?;
-        // we dont send data to the channel
-        // so this should return the default lux value
-        assert_eq!(DEFAULT_LUX, value);
+
+        assert_eq!(DEFAULT_LUX, als.get_raw()?);
         Ok(())
     }
 
     #[test]
-    fn test_get_raw_if_received_data_the_are_those_send_before() -> Result<(), Box<dyn Error>> {
+    fn test_get_raw_returns_value_from_webcam() -> Result<(), Box<dyn Error>> {
         let (als, webcam_tx) = setup();
-        // until we send data
+
         webcam_tx.send(42)?;
-        // and this well return the same data
-        let value = als.get_raw()?;
-        assert_eq!(42, value);
+
+        assert_eq!(42, als.get_raw()?);
         Ok(())
     }
 
     #[test]
-    fn test_get_raw_if_data_is_the_same_if_we_receive_twice() -> Result<(), Box<dyn Error>> {
+    fn test_get_raw_returns_most_recent_value_from_webcam() -> Result<(), Box<dyn Error>> {
         let (als, webcam_tx) = setup();
+
         webcam_tx.send(42)?;
-        // and what happen if we receive
-        // the data twice? this must return the last value:
-        // receive one time
-        let value = als.get_raw()?;
-        // we receive value...
-        assert_eq!(42, value);
-        // ...receive two time
-        let value = als.get_raw()?;
-        // we receive the same value
-        assert_eq!(42, value);
-        Ok(())
-    }
-
-    #[test]
-    fn test_get_raw_if_when_sending_twice_a_row_we_receive_well_the_last(
-    ) -> Result<(), Box<dyn Error>> {
-        let (als, webcam_tx) = setup();
-        // and now we send quickly two data
         webcam_tx.send(43)?;
         webcam_tx.send(44)?;
-        // ...and we receive just one
-        // we got the last data
-        let value = als.get_raw()?;
-        assert_eq!(44, value);
 
+        assert_eq!(44, als.get_raw()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_raw_returns_last_known_value_from_webcam_when_no_new_data(
+    ) -> Result<(), Box<dyn Error>> {
+        let (als, webcam_tx) = setup();
+
+        webcam_tx.send(42)?;
+        webcam_tx.send(43)?;
+
+        assert_eq!(43, als.get_raw()?);
+        assert_eq!(43, als.get_raw()?);
+        assert_eq!(43, als.get_raw()?);
         Ok(())
     }
 }
