@@ -109,7 +109,7 @@ impl Capturer {
                         .luma_percent(&frame)
                         .expect("Unable to compute luma percent");
 
-                    controller.borrow_mut().adjust(Some(luma));
+                    controller.borrow_mut().adjust(luma);
 
                     data.destroy();
 

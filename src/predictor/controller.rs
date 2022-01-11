@@ -66,7 +66,7 @@ impl Controller {
         }
     }
 
-    pub fn adjust(&mut self, luma: Option<u8>) {
+    pub fn adjust(&mut self, luma: u8) {
         self.last_als = self.als_rx.try_iter().last().unwrap_or(self.last_als);
 
         let lux = self.kalman.process(self.last_als);
@@ -76,7 +76,7 @@ impl Controller {
         }
     }
 
-    fn process(&mut self, lux: u64, luma: Option<u8>) {
+    fn process(&mut self, lux: u64, luma: u8) {
         let initial_brightness = self.initial_brightness.take();
         let user_changed_brightness = self.user_rx.try_iter().last().or(initial_brightness);
 
@@ -148,7 +148,7 @@ impl Controller {
         }
     }
 
-    fn predict(&mut self, lux: u64, luma: Option<u8>) {
+    fn predict(&mut self, lux: u64, luma: u8) {
         if self.data.entries.is_empty() {
             return;
         }
@@ -159,7 +159,7 @@ impl Controller {
             .iter()
             .map(|entry| {
                 let p1 = lux as f64 - entry.lux as f64;
-                let p2 = luma.unwrap_or(0) as f64 - entry.luma.unwrap_or(0) as f64;
+                let p2 = luma as f64 - entry.luma as f64;
                 let distance = (p1.powf(2.0) + p2.powf(2.0)).sqrt();
                 (entry.brightness as f64, distance)
             })
@@ -225,9 +225,9 @@ mod tests {
 
         // User changes brightness to value 33 for a given lux and luma
         user_tx.send(33)?;
-        controller.process(12345, Some(66));
+        controller.process(12345, 66);
 
-        assert_eq!(Some(Entry::new(12345, Some(66), 33)), controller.pending);
+        assert_eq!(Some(Entry::new(12345, 66, 33)), controller.pending);
         assert_eq!(PENDING_COOLDOWN_RESET, controller.pending_cooldown);
 
         Ok(())
@@ -239,16 +239,16 @@ mod tests {
 
         // User initiates brightness change for a given lux and luma to value 33...
         user_tx.send(33)?;
-        controller.process(12345, Some(66));
+        controller.process(12345, 66);
         // then quickly continues increasing it to 34 (while lux and luma might already be different)...
         user_tx.send(34)?;
-        controller.process(23456, Some(36));
+        controller.process(23456, 36);
         // and even faster to 36 (which is the indended brightness value they wish to learn for the initial lux and luma)
         user_tx.send(35)?;
         user_tx.send(36)?;
-        controller.process(100, Some(16));
+        controller.process(100, 16);
 
-        assert_eq!(Some(Entry::new(12345, Some(66), 36)), controller.pending);
+        assert_eq!(Some(Entry::new(12345, 66, 36)), controller.pending);
         assert_eq!(PENDING_COOLDOWN_RESET, controller.pending_cooldown);
 
         Ok(())
@@ -260,28 +260,25 @@ mod tests {
 
         // User changes brightness to a desired value
         user_tx.send(33)?;
-        controller.process(12345, Some(66));
+        controller.process(12345, 66);
         user_tx.send(33)?;
-        controller.process(23456, Some(36));
+        controller.process(23456, 36);
         user_tx.send(35)?;
-        controller.process(100, Some(16));
+        controller.process(100, 16);
 
         for i in 1..=PENDING_COOLDOWN_RESET {
             // User doesn't change brightness anymore, so even if lux or luma change, we are in cooldown period
-            controller.process(100 + i as u64, Some(i));
+            controller.process(100 + i as u64, i);
             assert_eq!(PENDING_COOLDOWN_RESET - i, controller.pending_cooldown);
-            assert_eq!(Some(Entry::new(12345, Some(66), 35)), controller.pending);
+            assert_eq!(Some(Entry::new(12345, 66, 35)), controller.pending);
         }
 
         // One final process will trigger the learning
-        controller.process(200, Some(17));
+        controller.process(200, 17);
 
         assert_eq!(None, controller.pending);
         assert_eq!(0, controller.pending_cooldown);
-        assert_eq!(
-            vec![Entry::new(12345, Some(66), 35)],
-            controller.data.entries
-        );
+        assert_eq!(vec![Entry::new(12345, 66, 35)], controller.data.entries);
 
         Ok(())
     }
@@ -298,28 +295,28 @@ mod tests {
     fn test_learn_data_cleanup() -> Result<(), Box<dyn Error>> {
         let (mut controller, _, _) = setup()?;
 
-        let pending = Entry::new(10, Some(20), 30);
+        let pending = Entry::new(10, 20, 30);
 
         let all_combinations: HashSet<_> = iproduct!(-1i32..=1, -1i32..=1, -1i32..=1)
-            .map(|(i, j, k)| Entry::new((10 + i) as u64, Some((20 + j) as u8), (30 + k) as u64))
+            .map(|(i, j, k)| Entry::new((10 + i) as u64, (20 + j) as u8, (30 + k) as u64))
             .collect();
 
         let to_be_deleted: HashSet<_> = vec![
             // darker env same screen
-            Entry::new(9, Some(20), 31),
+            Entry::new(9, 20, 31),
             // darker env brighter screen
-            Entry::new(9, Some(21), 31),
+            Entry::new(9, 21, 31),
             // same env darker screen
-            Entry::new(10, Some(19), 29),
+            Entry::new(10, 19, 29),
             // same env same screen
-            Entry::new(10, Some(20), 29),
-            Entry::new(10, Some(20), 31),
+            Entry::new(10, 20, 29),
+            Entry::new(10, 20, 31),
             // same env brighter screen
-            Entry::new(10, Some(21), 31),
+            Entry::new(10, 21, 31),
             // brighter env darker screen
-            Entry::new(11, Some(19), 29),
+            Entry::new(11, 19, 29),
             // brighter env same screen
-            Entry::new(11, Some(20), 29),
+            Entry::new(11, 20, 29),
         ]
         .into_iter()
         .collect();
@@ -359,7 +356,7 @@ mod tests {
         controller.data.entries = vec![];
 
         // predict() should not be called with no data, but just in case confirm we don't panic
-        controller.predict(10, Some(20));
+        controller.predict(10, 20);
 
         assert_eq!(true, prediction_rx.try_recv().is_err());
 
@@ -369,9 +366,9 @@ mod tests {
     #[test]
     fn test_predict_one_data_point() -> Result<(), Box<dyn Error>> {
         let (mut controller, _, prediction_rx) = setup()?;
-        controller.data.entries = vec![Entry::new(5, Some(10), 15)];
+        controller.data.entries = vec![Entry::new(5, 10, 15)];
 
-        controller.predict(10, Some(20));
+        controller.predict(10, 20);
 
         assert_eq!(15, prediction_rx.try_recv()?);
         Ok(())
@@ -380,9 +377,9 @@ mod tests {
     #[test]
     fn test_predict_known_conditions() -> Result<(), Box<dyn Error>> {
         let (mut controller, _, prediction_rx) = setup()?;
-        controller.data.entries = vec![Entry::new(5, Some(10), 15), Entry::new(10, Some(20), 30)];
+        controller.data.entries = vec![Entry::new(5, 10, 15), Entry::new(10, 20, 30)];
 
-        controller.predict(10, Some(20));
+        controller.predict(10, 20);
 
         assert_eq!(30, prediction_rx.try_recv()?);
         Ok(())
@@ -392,16 +389,16 @@ mod tests {
     fn test_predict_approximate() -> Result<(), Box<dyn Error>> {
         let (mut controller, _, prediction_rx) = setup()?;
         controller.data.entries = vec![
-            Entry::new(5, Some(10), 15),
-            Entry::new(10, Some(20), 30),
-            Entry::new(100, Some(100), 100),
+            Entry::new(5, 10, 15),
+            Entry::new(10, 20, 30),
+            Entry::new(100, 100, 100),
         ];
 
         // Approximated using weighted distance to all known points:
         // dist1 = sqrt((x1 - x2)^2 + (y1 - y2)^2)
         // weight1 = (1/dist1) / (1/dist1 + 1/dist2 + 1/dist3)
         // prediction = weight1*brightness1 + weight2*brightness2 + weight3*brightness
-        controller.predict(50, Some(50));
+        controller.predict(50, 50);
 
         assert_eq!(44, prediction_rx.try_recv()?);
         Ok(())

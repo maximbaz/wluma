@@ -12,7 +12,7 @@ pub struct Data {
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)]
 pub struct Entry {
     pub lux: u64,
-    pub luma: Option<u8>,
+    pub luma: u8,
     pub brightness: u64,
 }
 
@@ -64,7 +64,7 @@ impl Data {
 }
 
 impl Entry {
-    pub fn new(lux: u64, luma: Option<u8>, brightness: u64) -> Self {
+    pub fn new(lux: u64, luma: u8, brightness: u64) -> Self {
         Self {
             lux,
             luma,
