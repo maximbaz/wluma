@@ -18,7 +18,7 @@ thresholds = [ 20, 80, 250, 500, 800 ]
 
 # TODO multi-monitor setup is not supported, but wanted!
 [[output.backlight]]
-name = "Unknown 0x633D"
+name = "Sharp Corporation 0x14A8"
 path = "/sys/class/backlight/intel_backlight"
 
 ###################################################################

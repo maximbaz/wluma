@@ -1,4 +1,3 @@
-use crate::als::smoothen;
 use crate::device_file::read;
 use std::error::Error;
 use std::fs;
@@ -47,9 +46,7 @@ impl Als {
             .map(|sensor| Self { sensor, thresholds })
             .ok_or_else(|| "No iio device found".into())
     }
-}
 
-impl super::Als for Als {
     fn get_raw(&self) -> Result<u64, Box<dyn Error>> {
         Ok(match self.sensor {
             Illuminance {
@@ -69,9 +66,22 @@ impl super::Als for Als {
             }
         } as u64)
     }
+}
 
-    fn smoothen(&self, raw: u64) -> u64 {
-        smoothen(raw, &self.thresholds)
+impl super::Als for Als {
+    fn get(&self) -> Result<u64, Box<dyn Error>> {
+        let raw = self.get_raw()?;
+        let smooth = super::smoothen(raw, &self.thresholds);
+        let percent = super::to_percent(smooth, self.thresholds.len() as u64)?;
+
+        log::trace!(
+            "ALS (iio): {:>3}%  <--  {:>3} (smooth)  <--  {:>3} (raw)",
+            percent,
+            smooth,
+            raw,
+        );
+
+        Ok(percent)
     }
 }
 

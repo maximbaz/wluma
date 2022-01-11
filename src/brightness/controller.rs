@@ -1,5 +1,4 @@
 use super::Brightness;
-use std::error::Error;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
@@ -43,7 +42,7 @@ impl Controller {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn run(&mut self) {
         loop {
             self.step();
         }
@@ -126,6 +125,7 @@ mod tests {
     use super::*;
     use crate::brightness::MockBrightness;
     use mockall::predicate;
+    use std::error::Error;
     use std::sync::mpsc;
 
     // Intentionally not in main code to prevent confusing fields by accident

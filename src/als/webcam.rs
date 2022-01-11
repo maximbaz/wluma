@@ -1,4 +1,3 @@
-use crate::als::smoothen;
 use crate::frame::compute_perceived_lightness_percent;
 use crate::predictor::kalman::Kalman;
 use std::cell::RefCell;
@@ -77,9 +76,7 @@ impl Als {
             lux: RefCell::new(DEFAULT_LUX),
         }
     }
-}
 
-impl super::Als for Als {
     fn get_raw(&self) -> Result<u64, Box<dyn Error>> {
         let new_value = self
             .webcam_rx
@@ -89,15 +86,27 @@ impl super::Als for Als {
         *self.lux.borrow_mut() = new_value;
         Ok(new_value)
     }
+}
 
-    fn smoothen(&self, raw: u64) -> u64 {
-        smoothen(raw, &self.thresholds)
+impl super::Als for Als {
+    fn get(&self) -> Result<u64, Box<dyn Error>> {
+        let raw = self.get_raw()?;
+        let smooth = super::smoothen(raw, &self.thresholds);
+        let percent = super::to_percent(smooth, self.thresholds.len() as u64)?;
+
+        log::trace!(
+            "ALS (webcam): {:>3}%  <--  {:>3} (smooth)  <--  {:>3} (raw)",
+            percent,
+            smooth,
+            raw,
+        );
+
+        Ok(percent)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::Als as AlsTrait;
     use super::*;
     use std::sync::mpsc;
 

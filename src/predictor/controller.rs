@@ -1,4 +1,3 @@
-use crate::als::Als;
 use crate::predictor::data::{Data, Entry};
 use crate::predictor::kalman::Kalman;
 use itertools::Itertools;
@@ -11,20 +10,21 @@ const PENDING_COOLDOWN_RESET: u8 = 15;
 pub struct Controller {
     prediction_tx: Sender<u64>,
     user_rx: Receiver<u64>,
-    als: Box<dyn Als>,
+    als_rx: Receiver<u64>,
     kalman: Kalman,
     pending_cooldown: u8,
     pending: Option<Entry>,
     data: Data,
     stateful: bool,
     initial_brightness: Option<u64>,
+    last_als: u64,
 }
 
 impl Controller {
     pub fn new(
         prediction_tx: Sender<u64>,
         user_rx: Receiver<u64>,
-        als: Box<dyn Als>,
+        als_rx: Receiver<u64>,
         stateful: bool,
         output_name: &str,
     ) -> Self {
@@ -39,6 +39,11 @@ impl Controller {
             .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
             .expect("Did not receive initial brightness value in time");
 
+        // ALS controller is expected to send the initial value on this channel asap
+        let last_als = als_rx
+            .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
+            .expect("Did not receive initial ALS value in time");
+
         // If there are no learned entries yet, we will use this as the first data point,
         // assuming that user is happy with the current brightness settings
         let initial_brightness = if data.entries.is_empty() {
@@ -50,20 +55,21 @@ impl Controller {
         Self {
             prediction_tx,
             user_rx,
-            als,
+            als_rx,
             kalman: Kalman::new(1.0, 20.0, 10.0),
             pending_cooldown: 0,
             pending: None,
             data,
             stateful,
             initial_brightness,
+            last_als,
         }
     }
 
     pub fn adjust(&mut self, luma: Option<u8>) {
-        let lux = self
-            .kalman
-            .process(self.als.get().expect("Unable to get ALS value"));
+        self.last_als = self.als_rx.try_iter().last().unwrap_or(self.last_als);
+
+        let lux = self.kalman.process(self.last_als);
 
         if self.kalman.initialized() {
             self.process(lux, luma);
