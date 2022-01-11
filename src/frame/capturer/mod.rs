@@ -4,5 +4,5 @@ pub mod none;
 pub mod wlroots;
 
 pub trait Capturer {
-    fn run(&self, controller: Controller);
+    fn run(&self, output_name: &str, controller: Controller);
 }

@@ -17,18 +17,18 @@ thresholds = [ 20, 80, 250, 500, 800 ]
 # [als.none]
 
 # TODO multi-monitor setup is not supported, but wanted!
-[output.backlight.eDP-1]
+[[output.backlight]]
+model = "Unknown (0x633D)"
 path = "/sys/class/backlight/intel_backlight"
-# use_contents = true # TODO will be relevant in multi-monitor setups
 
 ###################################################################
 # to get DP-1 and ABCDEFG you can use `swaymsg -t get_outputs` in
 # running sway.
 # #################################################################
 #
-# [output.ddcutil.DP-1]
+# [[output.ddcutil]]
+# model = "Dell Inc. (DELL P2415Q)"
 # serial_number = "ABCDEFG"
-# use_contents = false
 #
 # TODO everything below is an idea, not supported but definitely wanted!
 # [keyboard.backlight.dell]

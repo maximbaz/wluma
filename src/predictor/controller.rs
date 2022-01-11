@@ -26,11 +26,12 @@ impl Controller {
         user_rx: Receiver<u64>,
         als: Box<dyn Als>,
         stateful: bool,
+        output_name: &str,
     ) -> Self {
         let data = if stateful {
-            Data::load().unwrap_or_default()
+            Data::load(output_name)
         } else {
-            Data::default()
+            Data::new(output_name)
         };
 
         // Brightness controller is expected to send the initial value on this channel asap
@@ -202,7 +203,13 @@ mod tests {
         let (user_tx, user_rx) = mpsc::channel();
         let (prediction_tx, prediction_rx) = mpsc::channel();
         user_tx.send(0)?;
-        let controller = Controller::new(prediction_tx, user_rx, Box::new(MockAls::new()), false);
+        let controller = Controller::new(
+            prediction_tx,
+            user_rx,
+            Box::new(MockAls::new()),
+            false,
+            "Dell 1",
+        );
         Ok((controller, user_tx, prediction_rx))
     }
 
