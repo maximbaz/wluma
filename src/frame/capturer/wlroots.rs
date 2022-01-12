@@ -37,7 +37,7 @@ impl super::Capturer for Capturer {
                 let desired_output = output_name.to_string();
                 output.clone().quick_assign(move |_, event, _| {
                     if let wl_output::Event::Geometry { make, model, .. } = event {
-                        let actual_output = format!("{} ({})", make, model);
+                        let actual_output = format!("{} {}", make, model);
                         if actual_output == desired_output {
                             capturer
                                 .clone()
