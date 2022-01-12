@@ -1,12 +1,13 @@
 use std::error::Error;
 
+#[cfg(test)]
+use mockall::*;
+
 pub mod iio;
 pub mod none;
 pub mod time;
 pub mod webcam;
 
-#[cfg(test)]
-use mockall::*;
 #[cfg_attr(test, automock)]
 pub trait Als {
     fn get_raw(&self) -> Result<u64, Box<dyn Error>>;
