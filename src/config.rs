@@ -39,15 +39,15 @@ pub struct OutputByType {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct BacklightOutput {
+    pub name: String,
     pub path: String,
-    pub model: String,
     #[serde(default)]
     pub use_contents: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct DdcUtilOutput {
-    pub model: String,
+    pub name: String,
     pub serial_number: String,
     #[serde(default)]
     pub use_contents: bool,

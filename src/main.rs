@@ -91,14 +91,14 @@ fn main() {
                             }
                         };
 
-                    let model = match capturer_config {
-                        config::Output::Backlight(cfg) => cfg.model,
-                        config::Output::DdcUtil(cfg) => cfg.model,
+                    let output_name = match capturer_config {
+                        config::Output::Backlight(cfg) => cfg.name,
+                        config::Output::DdcUtil(cfg) => cfg.name,
                     };
 
                     let controller =
-                        predictor::Controller::new(prediction_tx, user_rx, als, true, &model);
-                    frame_capturer.run(&model, controller)
+                        predictor::Controller::new(prediction_tx, user_rx, als, true, &output_name);
+                    frame_capturer.run(&output_name, controller)
                 }),
             ]
         })

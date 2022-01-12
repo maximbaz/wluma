@@ -18,7 +18,7 @@ thresholds = [ 20, 80, 250, 500, 800 ]
 
 # TODO multi-monitor setup is not supported, but wanted!
 [[output.backlight]]
-model = "Unknown (0x633D)"
+name = "Unknown (0x633D)"
 path = "/sys/class/backlight/intel_backlight"
 
 ###################################################################
@@ -27,7 +27,7 @@ path = "/sys/class/backlight/intel_backlight"
 # #################################################################
 #
 # [[output.ddcutil]]
-# model = "Dell Inc. (DELL P2415Q)"
+# name = "Dell Inc. (DELL P2415Q)"
 # serial_number = "ABCDEFG"
 #
 # TODO everything below is an idea, not supported but definitely wanted!
