@@ -92,13 +92,8 @@ impl Config {
                 .output_by_type
                 .backlight
                 .into_iter()
-                .map(|output| Output::Backlight(output))
-                .chain(
-                    cfg.output_by_type
-                        .ddcutil
-                        .into_iter()
-                        .map(|output| Output::DdcUtil(output)),
-                )
+                .map(Output::Backlight)
+                .chain(cfg.output_by_type.ddcutil.into_iter().map(Output::DdcUtil))
                 .collect();
             cfg.output_by_type = OutputByType::default();
             cfg
