@@ -20,7 +20,8 @@ test:
 
 .PHONY: lint
 lint:
-	cargo clippy
+	cargo fmt -- --check
+	cargo clippy -- -Dwarnings
 
 .PHONY: run
 run:

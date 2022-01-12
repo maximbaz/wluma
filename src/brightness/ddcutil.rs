@@ -58,6 +58,6 @@ fn find_display_by_sn(serial_number: &str) -> Option<Display> {
                 .as_ref()
                 .map(|v| v == serial_number)
                 .and_then(|_| display.update_capabilities().ok())
-                .and_then(|_| Some(display))
+                .map(|_| display)
         })
 }
