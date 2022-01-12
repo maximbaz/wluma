@@ -1,13 +1,12 @@
-use crate::frame::object::Object;
-use crate::frame::processor::Processor;
+use crate::frame::{object::Object, processor::Processor};
 use crate::predictor::Controller;
 use std::{cell::RefCell, rc::Rc, thread, time::Duration};
-use wayland_client::protocol::wl_output;
 use wayland_client::{
-    protocol::wl_registry::WlRegistry, Display as WaylandDisplay, EventQueue, GlobalManager, Main,
+    protocol::{wl_output::Event::Geometry, wl_output::WlOutput, wl_registry::WlRegistry},
+    Display, EventQueue, GlobalManager, Main,
 };
 use wayland_protocols::wlr::unstable::export_dmabuf::v1::client::{
-    zwlr_export_dmabuf_frame_v1::{CancelReason, Event as FrameEvent},
+    zwlr_export_dmabuf_frame_v1::{CancelReason, Event},
     zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1,
 };
 
@@ -31,12 +30,12 @@ impl super::Capturer for Capturer {
             .iter()
             .filter(|(_, interface, _)| interface == "wl_output")
             .for_each(|(id, _, _)| {
-                let output = Rc::new(self.registry.bind::<wl_output::WlOutput>(1, *id));
+                let output = Rc::new(self.registry.bind::<WlOutput>(1, *id));
                 let capturer = Rc::new(self.clone());
                 let controller = controller.clone();
                 let desired_output = output_name.to_string();
                 output.clone().quick_assign(move |_, event, _| {
-                    if let wl_output::Event::Geometry { make, model, .. } = event {
+                    if let Geometry { make, model, .. } = event {
                         let actual_output = format!("{} {}", make, model);
                         if actual_output == desired_output {
                             capturer
@@ -51,14 +50,14 @@ impl super::Capturer for Capturer {
             self.event_queue
                 .borrow_mut()
                 .dispatch(&mut (), |_, _, _| {})
-                .unwrap();
+                .expect("Error running wlroots capturer main loop");
         }
     }
 }
 
 impl Capturer {
     pub fn new(processor: Box<dyn Processor>) -> Self {
-        let display = WaylandDisplay::connect_to_env().unwrap();
+        let display = Display::connect_to_env().unwrap();
         let mut event_queue = display.create_event_queue();
         let attached_display = display.attach(event_queue.token());
         let registry = attached_display.get_registry();
@@ -68,7 +67,7 @@ impl Capturer {
 
         let dmabuf_manager = globals
             .instantiate_exact::<ZwlrExportDmabufManagerV1>(1)
-            .expect("unable to init export_dmabuf_manager");
+            .expect("Unable to init export_dmabuf_manager");
 
         Self {
             event_queue: Rc::new(RefCell::new(event_queue)),
@@ -82,14 +81,14 @@ impl Capturer {
     fn capture_frame(
         self: Rc<Self>,
         controller: Rc<RefCell<Controller>>,
-        output: Rc<Main<wl_output::WlOutput>>,
+        output: Rc<Main<WlOutput>>,
     ) {
         let mut frame = Object::default();
 
         self.dmabuf_manager
             .capture_output(0, &output)
             .quick_assign(move |data, event, _| match event {
-                FrameEvent::Frame {
+                Event::Frame {
                     width,
                     height,
                     num_objects,
@@ -98,13 +97,13 @@ impl Capturer {
                     frame.set_metadata(width, height, num_objects);
                 }
 
-                FrameEvent::Object {
+                Event::Object {
                     index, fd, size, ..
                 } => {
                     frame.set_object(index, fd, size);
                 }
 
-                FrameEvent::Ready { .. } => {
+                Event::Ready { .. } => {
                     let luma = self
                         .processor
                         .luma_percent(&frame)
@@ -118,7 +117,7 @@ impl Capturer {
                     self.clone().capture_frame(controller.clone(), output.clone());
                 }
 
-                FrameEvent::Cancel { reason } => {
+                Event::Cancel { reason } => {
                     data.destroy();
 
                     if reason == CancelReason::Permanent {
