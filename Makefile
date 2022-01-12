@@ -16,11 +16,12 @@ build:
 
 .PHONY: test
 test:
-	cargo test --locked
+	cargo test --workspace --locked
 
 .PHONY: lint
 lint:
-	cargo clippy
+	cargo fmt -- --check
+	RUSTFLAGS="-Dwarnings" cargo clippy --workspace -- -D warnings
 
 .PHONY: run
 run:
