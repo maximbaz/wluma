@@ -33,12 +33,13 @@ pub enum Als {
 #[derive(Deserialize, Debug, Default)]
 #[serde(default)]
 pub struct OutputByType {
-    pub backlight: HashMap<String, BacklightOutput>,
-    pub ddcutil: HashMap<String, DdcUtilOutput>,
+    pub backlight: Vec<BacklightOutput>,
+    pub ddcutil: Vec<DdcUtilOutput>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct BacklightOutput {
+    pub name: String,
     pub path: String,
     #[serde(default)]
     pub use_contents: bool,
@@ -46,6 +47,7 @@ pub struct BacklightOutput {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct DdcUtilOutput {
+    pub name: String,
     pub serial_number: String,
     #[serde(default)]
     pub use_contents: bool,
@@ -76,7 +78,7 @@ pub struct Config {
     output_by_type: OutputByType,
     pub keyboard: Option<Keyboards>,
     #[serde(skip)]
-    pub output: HashMap<String, Output>,
+    pub output: Vec<Output>,
 }
 
 impl Config {
@@ -90,13 +92,8 @@ impl Config {
                 .output_by_type
                 .backlight
                 .into_iter()
-                .map(|(name, output)| (name, Output::Backlight(output)))
-                .chain(
-                    cfg.output_by_type
-                        .ddcutil
-                        .into_iter()
-                        .map(|(name, output)| (name, Output::DdcUtil(output))),
-                )
+                .map(Output::Backlight)
+                .chain(cfg.output_by_type.ddcutil.into_iter().map(Output::DdcUtil))
                 .collect();
             cfg.output_by_type = OutputByType::default();
             cfg

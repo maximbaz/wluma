@@ -3,8 +3,9 @@ use std::error::Error;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::path::PathBuf;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Data {
+    pub output_name: String,
     pub entries: Vec<Entry>,
 }
 
@@ -16,36 +17,49 @@ pub struct Entry {
 }
 
 impl Data {
-    pub fn load() -> Result<Data, Box<dyn Error>> {
-        Ok(serde_yaml::from_reader(Self::read_file()?)?)
+    pub fn new(output_name: &str) -> Self {
+        Self {
+            output_name: output_name.to_string(),
+            entries: vec![],
+        }
+    }
+
+    pub fn load(output_name: &str) -> Self {
+        Self::path(output_name)
+            .ok()
+            .and_then(|path| Self::read_file(path).ok())
+            .and_then(|file| serde_yaml::from_reader(file).ok())
+            .unwrap_or_else(|| Self::new(output_name))
     }
 
     pub fn save(&self) -> Result<(), Box<dyn Error>> {
-        Ok(serde_yaml::to_writer(Self::write_file()?, self)?)
+        Ok(serde_yaml::to_writer(self.write_file()?, self)?)
     }
 
-    fn read_file() -> Result<File, Box<dyn Error>> {
+    fn read_file(path: PathBuf) -> Result<File, Box<dyn Error>> {
         Ok(OpenOptions::new()
             .create(true)
             .write(true)
             .read(true)
-            .open(Self::path()?)?)
+            .open(path)?)
     }
 
-    fn write_file() -> Result<File, Box<dyn Error>> {
+    fn write_file(&self) -> Result<File, Box<dyn Error>> {
+        let path = Self::path(&self.output_name).unwrap();
         Ok(OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
-            .open(Self::path()?)?)
+            .open(path)?)
     }
 
-    fn path() -> Result<PathBuf, Box<dyn Error>> {
+    fn path(output_name: &str) -> Result<PathBuf, Box<dyn Error>> {
+        let filename = format!("{:x}.yaml", md5::compute(output_name));
         let datadir = dirs::data_dir()
             .ok_or("Unable to get data dir")?
             .join("wluma");
         create_dir_all(datadir.clone())?;
-        Ok(datadir.join("data.yaml"))
+        Ok(datadir.join(filename))
     }
 }
 
