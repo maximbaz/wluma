@@ -14,8 +14,10 @@ toml = { git = "https://github.com/vgao1996/toml-rs", branch = "dotted-table-0.5
 chrono = "0.4"
 ash = "0.33"
 itertools = "0.10"
-mockall = "0.10"
 v4l = { version = "0.12", features = ["libv4l"], default-features = false }
 ddc-hi = "0.4"
 log = "0.4"
 env_logger = "0.9"
+
+[dev-dependencies]
+mockall = "0.10"
