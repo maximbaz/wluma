@@ -5,8 +5,9 @@ use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Data {
-    pub output_name: String,
     pub entries: Vec<Entry>,
+    #[serde(skip)]
+    pub output_name: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)]
@@ -54,7 +55,7 @@ impl Data {
     }
 
     fn path(output_name: &str) -> Result<PathBuf, Box<dyn Error>> {
-        let filename = format!("{:x}.yaml", md5::compute(output_name));
+        let filename = format!("{:}.yaml", output_name);
         let datadir = dirs::data_dir()
             .ok_or("Unable to get data dir")?
             .join("wluma");

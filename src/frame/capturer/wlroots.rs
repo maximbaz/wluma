@@ -2,13 +2,16 @@ use crate::frame::{object::Object, processor::Processor};
 use crate::predictor::Controller;
 use std::{cell::RefCell, rc::Rc, thread, time::Duration};
 use wayland_client::{
-    protocol::{wl_output::Event::Geometry, wl_output::WlOutput, wl_registry::WlRegistry},
+    protocol::{wl_output::WlOutput, wl_registry::WlRegistry},
     Display, EventQueue, GlobalManager, Main,
 };
 use wayland_protocols::wlr::unstable::export_dmabuf::v1::client::{
     zwlr_export_dmabuf_frame_v1::{CancelReason, Event},
     zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1,
 };
+
+use wayland_protocols::unstable::xdg_output::v1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
+use wayland_protocols::unstable::xdg_output::v1::client::zxdg_output_v1::Event::Description;
 
 const DELAY_SUCCESS: Duration = Duration::from_millis(100);
 const DELAY_FAILURE: Duration = Duration::from_millis(1000);
@@ -20,11 +23,13 @@ pub struct Capturer {
     dmabuf_manager: Main<ZwlrExportDmabufManagerV1>,
     processor: Rc<dyn Processor>,
     registry: Main<WlRegistry>,
+    xdg_output_manager: Main<ZxdgOutputManagerV1>,
 }
 
 impl super::Capturer for Capturer {
     fn run(&self, output_name: &str, controller: Controller) {
         let controller = Rc::new(RefCell::new(controller));
+
         self.globals
             .list()
             .iter()
@@ -34,16 +39,21 @@ impl super::Capturer for Capturer {
                 let capturer = Rc::new(self.clone());
                 let controller = controller.clone();
                 let desired_output = output_name.to_string();
-                output.clone().quick_assign(move |_, event, _| {
-                    if let Geometry { make, model, .. } = event {
-                        let actual_output = format!("{} {}", make, model);
-                        if actual_output == desired_output {
+                self.xdg_output_manager
+                    .get_xdg_output(&output)
+                    .quick_assign(move |_, event, _| match event {
+                        Description { description } if description.contains(&desired_output) => {
+                            log::debug!(
+                                "Using output '{}' for config '{}'",
+                                description,
+                                desired_output,
+                            );
                             capturer
                                 .clone()
-                                .capture_frame(controller.clone(), output.clone())
+                                .capture_frame(controller.clone(), output.clone());
                         }
-                    }
-                })
+                        _ => {}
+                    });
             });
 
         loop {
@@ -69,12 +79,17 @@ impl Capturer {
             .instantiate_exact::<ZwlrExportDmabufManagerV1>(1)
             .expect("Unable to init export_dmabuf_manager");
 
+        let xdg_output_manager = globals
+            .instantiate_exact::<ZxdgOutputManagerV1>(3)
+            .expect("Unable to init xdg_output_manager");
+
         Self {
             event_queue: Rc::new(RefCell::new(event_queue)),
             globals,
             registry,
             dmabuf_manager,
             processor: processor.into(),
+            xdg_output_manager,
         }
     }
 
@@ -84,7 +99,6 @@ impl Capturer {
         output: Rc<Main<WlOutput>>,
     ) {
         let mut frame = Object::default();
-
         self.dmabuf_manager
             .capture_output(0, &output)
             .quick_assign(move |data, event, _| match event {

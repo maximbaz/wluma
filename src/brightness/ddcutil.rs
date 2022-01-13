@@ -48,15 +48,16 @@ fn get_max_brightness(display: &mut Display) -> Result<u64, Box<dyn Error>> {
         .maximum() as u64)
 }
 
-fn find_display_by_sn(serial_number: &str) -> Option<Display> {
+fn find_display_by_sn(name: &str) -> Option<Display> {
+    let model = |display: &Display| display.info.model_name.clone();
+    let serial = |display: &Display| display.info.serial_number.clone();
+
     ddc_hi::Display::enumerate()
         .into_iter()
         .find_map(|mut display| {
-            display
-                .info
-                .serial_number
-                .as_ref()
-                .map(|v| v == serial_number)
+            model(&display)
+                .and_then(|model| serial(&display).map(|serial| format!("{} {}", model, serial)))
+                .and_then(|merged| merged.contains(name).then(|| ()))
                 .and_then(|_| display.update_capabilities().ok())
                 .map(|_| display)
         })
