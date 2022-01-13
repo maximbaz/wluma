@@ -3,17 +3,18 @@ use std::error::Error;
 #[cfg(test)]
 use mockall::*;
 
+pub mod controller;
 pub mod iio;
 pub mod none;
 pub mod time;
 pub mod webcam;
-pub mod controller;
 
 #[cfg_attr(test, automock)]
 pub trait Als {
     fn get(&self) -> Result<u64, Box<dyn Error>>;
 }
 
+#[allow(clippy::ptr_arg)]
 fn smoothen(raw: u64, thresholds: &Vec<u64>) -> u64 {
     thresholds
         .iter()
