@@ -23,7 +23,7 @@ pub struct Capturer {
     dmabuf_manager: Main<ZwlrExportDmabufManagerV1>,
     processor: Rc<dyn Processor>,
     registry: Main<WlRegistry>,
-    xdg_output: Main<ZxdgOutputManagerV1>,
+    xdg_output_manager: Main<ZxdgOutputManagerV1>,
 }
 
 impl super::Capturer for Capturer {
@@ -39,8 +39,9 @@ impl super::Capturer for Capturer {
                 let capturer = Rc::new(self.clone());
                 let controller = controller.clone();
                 let desired_output = output_name.to_string();
-                self.xdg_output.get_xdg_output(&output).quick_assign(
-                    move |_, event, _| match event {
+                self.xdg_output_manager
+                    .get_xdg_output(&output)
+                    .quick_assign(move |_, event, _| match event {
                         Description { description } if description.contains(&desired_output) => {
                             log::debug!(
                                 "Using output '{}' for config '{}'",
@@ -52,8 +53,7 @@ impl super::Capturer for Capturer {
                                 .capture_frame(controller.clone(), output.clone());
                         }
                         _ => {}
-                    },
-                );
+                    });
             });
 
         loop {
@@ -79,7 +79,7 @@ impl Capturer {
             .instantiate_exact::<ZwlrExportDmabufManagerV1>(1)
             .expect("Unable to init export_dmabuf_manager");
 
-        let xdg_output = globals
+        let xdg_output_manager = globals
             .instantiate_exact::<ZxdgOutputManagerV1>(3)
             .expect("Unable to init xdg_output_manager");
 
@@ -89,7 +89,7 @@ impl Capturer {
             registry,
             dmabuf_manager,
             processor: processor.into(),
-            xdg_output,
+            xdg_output_manager,
         }
     }
 
