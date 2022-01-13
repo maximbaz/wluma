@@ -7,11 +7,11 @@ const WAITING_SLEEP_MS: u64 = 100;
 
 pub struct Controller {
     als: Box<dyn Als>,
-    value_txs: Vec<Sender<u64>>,
+    value_txs: Vec<Sender<String>>,
 }
 
 impl Controller {
-    pub fn new(als: Box<dyn Als>, value_txs: Vec<Sender<u64>>) -> Self {
+    pub fn new(als: Box<dyn Als>, value_txs: Vec<Sender<String>>) -> Self {
         Self { als, value_txs }
     }
 
@@ -25,7 +25,7 @@ impl Controller {
         match self.als.get() {
             Ok(value) => {
                 self.value_txs.iter().for_each(|chan| {
-                    chan.send(value)
+                    chan.send(value.clone())
                         .expect("Unable to send new ALS value, channel is dead")
                 });
             }

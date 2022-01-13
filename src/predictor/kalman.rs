@@ -32,8 +32,4 @@ impl Kalman {
 
         self.value.unwrap().round() as u64
     }
-
-    pub fn initialized(&self) -> bool {
-        self.steps > 10
-    }
 }

@@ -1,7 +1,6 @@
+use itertools::Itertools;
+use std::collections::HashMap;
 use std::error::Error;
-
-#[cfg(test)]
-use mockall::*;
 
 pub mod controller;
 pub mod iio;
@@ -9,26 +8,18 @@ pub mod none;
 pub mod time;
 pub mod webcam;
 
-#[cfg_attr(test, automock)]
 pub trait Als {
-    fn get(&self) -> Result<u64, Box<dyn Error>>;
+    fn get(&self) -> Result<String, Box<dyn Error>>;
 }
 
-#[allow(clippy::ptr_arg)]
-fn smoothen(raw: u64, thresholds: &Vec<u64>) -> u64 {
+fn find_profile(raw: u64, thresholds: &HashMap<u64, String>) -> String {
     thresholds
         .iter()
-        .enumerate()
-        .find(|(_, &threshold)| raw < threshold)
-        .map(|(i, _)| i as u64)
-        .unwrap_or(thresholds.len() as u64)
-}
-
-fn to_percent(smooth: u64, max: u64) -> Result<u64, String> {
-    match max {
-        0 => Err("Unable to calculate percentage (division by zero)".to_string()),
-        _ => Ok(((smooth as f64) * 100.0 / (max as f64)).ceil() as u64),
-    }
+        .sorted_by_key(|(lux, _)| *lux)
+        .rev()
+        .find_or_last(|(lux, _)| raw >= **lux)
+        .map(|(_, profile)| profile.to_string())
+        .unwrap_or_else(|| panic!("Unable to find ALS profile for value '{}'", raw))
 }
 
 #[cfg(test)]
@@ -36,19 +27,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_smoothen() {
-        assert_eq!(0, smoothen(123, &vec![]));
-        assert_eq!(0, smoothen(23, &vec![100, 200]));
-        assert_eq!(1, smoothen(123, &vec![100, 200]));
-        assert_eq!(2, smoothen(223, &vec![100, 200]));
+    fn test_find_profile_base_cases() {
+        let thresholds = vec![(0, "dark"), (10, "dim"), (20, "bright")]
+            .into_iter()
+            .map(|(lux, profile)| (lux, profile.to_string()))
+            .collect();
+
+        assert_eq!("dark", find_profile(0, &thresholds));
+        assert_eq!("dark", find_profile(2, &thresholds));
+        assert_eq!("dim", find_profile(10, &thresholds));
+        assert_eq!("dim", find_profile(19, &thresholds));
+        assert_eq!("bright", find_profile(20, &thresholds));
+        assert_eq!("bright", find_profile(200, &thresholds));
     }
 
     #[test]
-    fn test_to_percent() {
-        assert_eq!(true, to_percent(10, 0).is_err());
-        assert_eq!(Ok(0), to_percent(0, 3));
-        assert_eq!(Ok(34), to_percent(1, 3));
-        assert_eq!(Ok(67), to_percent(2, 3));
-        assert_eq!(Ok(100), to_percent(3, 3));
+    fn test_find_profile_fallback_first() {
+        let thresholds = vec![(5, "dark"), (10, "dim"), (20, "bright")]
+            .into_iter()
+            .map(|(lux, profile)| (lux, profile.to_string()))
+            .collect();
+
+        assert_eq!("dark", find_profile(0, &thresholds));
+        assert_eq!("dark", find_profile(4, &thresholds));
+    }
+
+    #[test]
+    fn test_find_profile_is_constant_on_thresholds_with_one_value() {
+        let thresholds = vec![(5, "dark")]
+            .into_iter()
+            .map(|(lux, profile)| (lux, profile.to_string()))
+            .collect();
+
+        assert_eq!("dark", find_profile(0, &thresholds));
+        assert_eq!("dark", find_profile(4, &thresholds));
+        assert_eq!("dark", find_profile(5, &thresholds));
+        assert_eq!("dark", find_profile(9, &thresholds));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_find_profile_panics_on_empty_thresholds() {
+        find_profile(10, &HashMap::default());
     }
 }

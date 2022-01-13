@@ -1,6 +1,7 @@
 use crate::frame::compute_perceived_lightness_percent;
 use crate::predictor::kalman::Kalman;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -64,12 +65,12 @@ impl Webcam {
 
 pub struct Als {
     webcam_rx: Receiver<u64>,
-    thresholds: Vec<u64>,
+    thresholds: HashMap<u64, String>,
     lux: RefCell<u64>,
 }
 
 impl Als {
-    pub fn new(webcam_rx: Receiver<u64>, thresholds: Vec<u64>) -> Self {
+    pub fn new(webcam_rx: Receiver<u64>, thresholds: HashMap<u64, String>) -> Self {
         Self {
             webcam_rx,
             thresholds,
@@ -89,19 +90,12 @@ impl Als {
 }
 
 impl super::Als for Als {
-    fn get(&self) -> Result<u64, Box<dyn Error>> {
+    fn get(&self) -> Result<String, Box<dyn Error>> {
         let raw = self.get_raw()?;
-        let smooth = super::smoothen(raw, &self.thresholds);
-        let percent = super::to_percent(smooth, self.thresholds.len() as u64)?;
+        let profile = super::find_profile(raw, &self.thresholds);
 
-        log::trace!(
-            "ALS (webcam): {:>3}%  <--  {:>3} (smooth)  <--  {:>3} (raw)",
-            percent,
-            smooth,
-            raw,
-        );
-
-        Ok(percent)
+        log::trace!("ALS (webcam): {} ({})", profile, raw);
+        Ok(profile)
     }
 }
 
@@ -112,7 +106,7 @@ mod tests {
 
     fn setup() -> (Als, Sender<u64>) {
         let (webcam_tx, webcam_rx) = mpsc::channel();
-        let als = Als::new(webcam_rx, vec![]);
+        let als = Als::new(webcam_rx, HashMap::default());
         (als, webcam_tx)
     }
 

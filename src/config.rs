@@ -24,9 +24,26 @@ pub struct Frame {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Als {
-    Iio { path: String, thresholds: Vec<u64> },
-    Time { hour_to_lux: HashMap<String, u64> },
-    Webcam { video: usize, thresholds: Vec<u64> },
+    Iio {
+        path: String,
+        #[serde(rename = "thresholds")]
+        thresholds_string_key: HashMap<String, String>,
+        #[serde(skip)]
+        thresholds: HashMap<u64, String>,
+    },
+    Time {
+        #[serde(rename = "thresholds")]
+        thresholds_string_key: HashMap<String, String>,
+        #[serde(skip)]
+        thresholds: HashMap<u64, String>,
+    },
+    Webcam {
+        video: usize,
+        #[serde(rename = "thresholds")]
+        thresholds_string_key: HashMap<String, String>,
+        #[serde(skip)]
+        thresholds: HashMap<u64, String>,
+    },
     None,
 }
 
@@ -96,6 +113,42 @@ impl Config {
                 .chain(cfg.output_by_type.ddcutil.into_iter().map(Output::DdcUtil))
                 .collect();
             cfg.output_by_type = OutputByType::default();
+
+            let parse_als_thresholds = |t: HashMap<String, String>| -> HashMap<u64, String> {
+                t.into_iter()
+                    .map(|(k, v)| (k.parse::<u64>().unwrap(), v))
+                    .collect()
+            };
+
+            cfg.als = match cfg.als {
+                Als::Iio {
+                    path,
+                    thresholds_string_key,
+                    ..
+                } => Als::Iio {
+                    path,
+                    thresholds: parse_als_thresholds(thresholds_string_key),
+                    thresholds_string_key: HashMap::default(),
+                },
+                Als::Webcam {
+                    video,
+                    thresholds_string_key,
+                    ..
+                } => Als::Webcam {
+                    video,
+                    thresholds: parse_als_thresholds(thresholds_string_key),
+                    thresholds_string_key: HashMap::default(),
+                },
+                Als::Time {
+                    thresholds_string_key,
+                    ..
+                } => Als::Time {
+                    thresholds: parse_als_thresholds(thresholds_string_key),
+                    thresholds_string_key: HashMap::default(),
+                },
+                Als::None => Als::None,
+            };
+
             cfg
         })
     }

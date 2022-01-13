@@ -1,7 +1,5 @@
 use itertools::Itertools;
 use std::sync::mpsc;
-use std::sync::mpsc::Sender;
-use std::thread::JoinHandle;
 
 mod als;
 mod brightness;
@@ -23,7 +21,7 @@ fn main() {
     let config_outputs = config.output;
     let config_als = config.als;
 
-    let (als_txs, threads): (Vec<Sender<u64>>, Vec<Vec<JoinHandle<()>>>) = config_outputs
+    let (als_txs, threads): (_, Vec<_>) = config_outputs
         .into_iter()
         .map(move |output| {
             let config = match config::Config::load() {
@@ -100,12 +98,16 @@ fn main() {
         .flatten()
         .chain(std::iter::once(std::thread::spawn(move || {
             let als: Box<dyn als::Als> = match config_als {
-                config::Als::Iio { path, thresholds } => Box::new(
+                config::Als::Iio {
+                    path, thresholds, ..
+                } => Box::new(
                     als::iio::Als::new(&path, thresholds)
                         .expect("Unable to initialize ALS IIO sensor"),
                 ),
-                config::Als::Time { ref hour_to_lux } => Box::new(als::time::Als::new(hour_to_lux)),
-                config::Als::Webcam { video, thresholds } => Box::new({
+                config::Als::Time { thresholds, .. } => Box::new(als::time::Als::new(thresholds)),
+                config::Als::Webcam {
+                    video, thresholds, ..
+                } => Box::new({
                     let (webcam_tx, webcam_rx) = mpsc::channel();
                     std::thread::spawn(move || {
                         als::webcam::Webcam::new(webcam_tx, video).run();

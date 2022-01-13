@@ -4,7 +4,7 @@ use std::error::Error;
 pub struct Als {}
 
 impl super::Als for Als {
-    fn get(&self) -> Result<u64, Box<dyn Error>> {
-        Ok(0)
+    fn get(&self) -> Result<String, Box<dyn Error>> {
+        Ok("none".to_string())
     }
 }

@@ -1,4 +1,5 @@
 use crate::device_file::read;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
@@ -21,11 +22,11 @@ enum SensorType {
 
 pub struct Als {
     sensor: SensorType,
-    thresholds: Vec<u64>,
+    thresholds: HashMap<u64, String>,
 }
 
 impl Als {
-    pub fn new(base_path: &str, thresholds: Vec<u64>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(base_path: &str, thresholds: HashMap<u64, String>) -> Result<Self, Box<dyn Error>> {
         Path::new(base_path)
             .read_dir()
             .ok()
@@ -69,19 +70,12 @@ impl Als {
 }
 
 impl super::Als for Als {
-    fn get(&self) -> Result<u64, Box<dyn Error>> {
+    fn get(&self) -> Result<String, Box<dyn Error>> {
         let raw = self.get_raw()?;
-        let smooth = super::smoothen(raw, &self.thresholds);
-        let percent = super::to_percent(smooth, self.thresholds.len() as u64)?;
+        let profile = super::find_profile(raw, &self.thresholds);
 
-        log::trace!(
-            "ALS (iio): {:>3}%  <--  {:>3} (smooth)  <--  {:>3} (raw)",
-            percent,
-            smooth,
-            raw,
-        );
-
-        Ok(percent)
+        log::trace!("ALS (iio): {} ({})", profile, raw);
+        Ok(profile)
     }
 }
 

@@ -5,14 +5,14 @@ capturer = "wlroots"
 
 [als.iio]
 path = "/sys/bus/iio/devices"
-thresholds = [ 20, 80, 250, 500, 800 ]
+thresholds = { 0 = "night", 20 = "dark", 80 = "dim", 250 = "normal", 500 = "bright", 800 = "outdoors" }
 
 # [als.webcam]
 # video = 0
-# thresholds = [ 15, 30, 45, 60, 75 ]
+# thresholds = { 0 = "night", 15 = "dark", 30 = "dim", 45 = "normal", 60 = "bright", 75 = "outdoors" }
 
 # [als.time]
-# hour_to_lux = { 7 = 1, 9 = 2, 11 = 3, 13 = 4, 16 = 3, 18 = 1, 20 = 0 }
+# thresholds = { 0 = "night", 7 = "dark", 9 = "dim", 11 = "normal", 13 = "bright", 16 = "normal", 18 = "dark", 20 = "night" }
 
 # [als.none]
 
