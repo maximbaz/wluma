@@ -2,7 +2,7 @@ use crate::frame::{object::Object, processor::Processor};
 use crate::predictor::Controller;
 use std::{cell::RefCell, rc::Rc, thread, time::Duration};
 use wayland_client::{
-    protocol::{wl_output::Event::Geometry, wl_output::WlOutput, wl_registry::WlRegistry},
+    protocol::{wl_output::WlOutput, wl_registry::WlRegistry},
     Display, EventQueue, GlobalManager, Main,
 };
 use wayland_protocols::wlr::unstable::export_dmabuf::v1::client::{
@@ -11,7 +11,7 @@ use wayland_protocols::wlr::unstable::export_dmabuf::v1::client::{
 };
 
 use wayland_protocols::unstable::xdg_output::v1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
-use wayland_protocols::unstable::xdg_output::v1::client::zxdg_output_v1::Event as XdgEvent;
+use wayland_protocols::unstable::xdg_output::v1::client::zxdg_output_v1::Event::Description;
 
 const DELAY_SUCCESS: Duration = Duration::from_millis(100);
 const DELAY_FAILURE: Duration = Duration::from_millis(1000);
@@ -29,25 +29,28 @@ pub struct Capturer {
 impl super::Capturer for Capturer {
     fn run(&self, output_name: &str, controller: Controller) {
         let controller = Rc::new(RefCell::new(controller));
+
         self.globals
             .list()
             .iter()
             .filter(|(_, interface, _)| interface == "wl_output")
             .for_each(|(id, _, _)| {
-                let output = Rc::new(self.registry.bind::<WlOutput>(1, *id));
+                let output = Rc::new(self.registry.bind::<WlOutput>(2, *id));
                 let capturer = Rc::new(self.clone());
                 let controller = controller.clone();
                 let desired_output = output_name.to_string();
-                output.clone().quick_assign(move |_, event, _| {
-                    if let Geometry { make, model, .. } = event {
-                        let actual_output = format!("{} {}", make, model);
-                        if actual_output == desired_output {
-                            capturer
-                                .clone()
-                                .capture_frame(controller.clone(), output.clone())
+                self.xdg_output
+                    .get_xdg_output(&output)
+                    .quick_assign(move |_, event, _| {
+                        if let Description { description } = event {
+                            log::debug!("description: {:?}", description);
+                            if description.starts_with(&desired_output) {
+                                capturer
+                                    .clone()
+                                    .capture_frame(controller.clone(), output.clone())
+                            }
                         }
-                    }
-                })
+                    });
             });
 
         loop {
@@ -74,7 +77,7 @@ impl Capturer {
             .expect("Unable to init export_dmabuf_manager");
 
         let xdg_output = globals
-            .instantiate_exact::<ZxdgOutputManagerV1>(1)
+            .instantiate_exact::<ZxdgOutputManagerV1>(2)
             .expect("Unable to init xdg_output");
 
         Self {
@@ -93,13 +96,6 @@ impl Capturer {
         output: Rc<Main<WlOutput>>,
     ) {
         let mut frame = Object::default();
-        self.xdg_output
-            .get_xdg_output(&output)
-            .quick_assign(move |_, event: XdgEvent, _| match event {
-                XdgEvent::Description { description } => println!("description: {:?}", description),
-                _ => println!("{:?}", event),
-            });
-
         self.dmabuf_manager
             .capture_output(0, &output)
             .quick_assign(move |data, event, _| match event {
