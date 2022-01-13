@@ -97,7 +97,7 @@ impl Controller {
 
     fn learn(&mut self) {
         let pending = self.pending.take().expect("No pending entry to learn");
-        log::debug!("Learning a new entry: {:?}", pending);
+        log::debug!("Learning {:?}", pending);
 
         self.data.entries.retain(|entry| {
             let different_env = entry.lux != pending.lux;
