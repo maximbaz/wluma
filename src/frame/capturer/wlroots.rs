@@ -39,22 +39,21 @@ impl super::Capturer for Capturer {
                 let capturer = Rc::new(self.clone());
                 let controller = controller.clone();
                 let desired_output = output_name.to_string();
-                self.xdg_output
-                    .get_xdg_output(&output)
-                    .quick_assign(move |_, event, _| {
-                        if let Description { description } = event {
-                            if description.contains(&desired_output) {
-                                log::debug!(
-                                    "output matching '{:?}' found '{:?}'",
-                                    desired_output,
-                                    description
-                                );
-                                capturer
-                                    .clone()
-                                    .capture_frame(controller.clone(), output.clone())
-                            }
+                self.xdg_output.get_xdg_output(&output).quick_assign(
+                    move |_, event, _| match event {
+                        Description { description } if description.contains(&desired_output) => {
+                            log::debug!(
+                                "Using output '{}' for config '{}'",
+                                description,
+                                desired_output,
+                            );
+                            capturer
+                                .clone()
+                                .capture_frame(controller.clone(), output.clone());
                         }
-                    });
+                        _ => {}
+                    },
+                );
             });
 
         loop {
