@@ -1,4 +1,4 @@
-use ddc_hi::{Ddc, Display, FeatureCode};
+use ddc_hi::{Ddc, Display, DisplayInfo, FeatureCode};
 use std::cell::RefCell;
 use std::error::Error;
 
@@ -48,16 +48,31 @@ fn get_max_brightness(display: &mut Display) -> Result<u64, Box<dyn Error>> {
         .maximum() as u64)
 }
 
-fn find_display_by_sn(serial_number: &str) -> Option<Display> {
+fn find_display_by_sn(name: &str) -> Option<Display> {
     ddc_hi::Display::enumerate()
         .into_iter()
         .find_map(|mut display| {
-            display
-                .info
-                .serial_number
-                .as_ref()
-                .map(|v| v == serial_number)
-                .and_then(|_| display.update_capabilities().ok())
-                .map(|_| display)
+            if let DisplayInfo {
+                model_name,
+                serial_number,
+                ..
+            } = display.info
+            {
+                if model_name.contains(&name) || serial_number.contains(&name) {
+                    display
+                }
+            }
         })
+        .map(|v| v)
+        .and_then(|_| display.update_capabilities().ok())
+        .map(|_| display)
+
+    //     display
+    //         .info
+    //         .serial_number
+    //         .as_ref()
+    //         .map(|v| v.contains(name))
+    //         .and_then(|_| display.update_capabilities().ok())
+    //         .map(|_| display)
+    // })
 }
