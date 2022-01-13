@@ -18,7 +18,6 @@ v4l = { version = "0.12", features = ["libv4l"], default-features = false }
 ddc-hi = "0.4"
 log = "0.4"
 env_logger = "0.9"
-md5 = "0.7"
 
 [dev-dependencies]
 mockall = "0.10"
