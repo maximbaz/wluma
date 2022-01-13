@@ -35,7 +35,7 @@ impl super::Capturer for Capturer {
             .iter()
             .filter(|(_, interface, _)| interface == "wl_output")
             .for_each(|(id, _, _)| {
-                let output = Rc::new(self.registry.bind::<WlOutput>(2, *id));
+                let output = Rc::new(self.registry.bind::<WlOutput>(1, *id));
                 let capturer = Rc::new(self.clone());
                 let controller = controller.clone();
                 let desired_output = output_name.to_string();
