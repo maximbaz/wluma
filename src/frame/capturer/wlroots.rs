@@ -10,6 +10,9 @@ use wayland_protocols::wlr::unstable::export_dmabuf::v1::client::{
     zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1,
 };
 
+use wayland_protocols::unstable::xdg_output::v1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
+use wayland_protocols::unstable::xdg_output::v1::client::zxdg_output_v1::Event as XdgEvent;
+
 const DELAY_SUCCESS: Duration = Duration::from_millis(100);
 const DELAY_FAILURE: Duration = Duration::from_millis(1000);
 
@@ -20,6 +23,7 @@ pub struct Capturer {
     dmabuf_manager: Main<ZwlrExportDmabufManagerV1>,
     processor: Rc<dyn Processor>,
     registry: Main<WlRegistry>,
+    xdg_output: Main<ZxdgOutputManagerV1>,
 }
 
 impl super::Capturer for Capturer {
@@ -69,12 +73,17 @@ impl Capturer {
             .instantiate_exact::<ZwlrExportDmabufManagerV1>(1)
             .expect("Unable to init export_dmabuf_manager");
 
+        let xdg_output = globals
+            .instantiate_exact::<ZxdgOutputManagerV1>(1)
+            .expect("Unable to init xdg_output");
+
         Self {
             event_queue: Rc::new(RefCell::new(event_queue)),
             globals,
             registry,
             dmabuf_manager,
             processor: processor.into(),
+            xdg_output,
         }
     }
 
@@ -84,6 +93,12 @@ impl Capturer {
         output: Rc<Main<WlOutput>>,
     ) {
         let mut frame = Object::default();
+        self.xdg_output
+            .get_xdg_output(&output)
+            .quick_assign(move |_, event: XdgEvent, _| match event {
+                XdgEvent::Description { description } => println!("description: {:?}", description),
+                _ => println!("{:?}", event),
+            });
 
         self.dmabuf_manager
             .capture_output(0, &output)
