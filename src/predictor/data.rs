@@ -5,9 +5,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Data {
-    pub entries: Vec<Entry>,
-    #[serde(skip)]
     pub output_name: String,
+    pub entries: Vec<Entry>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)]
@@ -21,7 +20,7 @@ impl Data {
     pub fn new(output_name: &str) -> Self {
         Self {
             output_name: output_name.to_string(),
-            entries: vec![],
+            entries: Vec::default(),
         }
     }
 
