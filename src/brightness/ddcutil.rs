@@ -1,4 +1,4 @@
-use ddc_hi::{Ddc, Display, DisplayInfo, FeatureCode};
+use ddc_hi::{Ddc, Display, FeatureCode};
 use std::cell::RefCell;
 use std::error::Error;
 
@@ -52,27 +52,19 @@ fn find_display_by_sn(name: &str) -> Option<Display> {
     ddc_hi::Display::enumerate()
         .into_iter()
         .find_map(|mut display| {
-            if let DisplayInfo {
-                model_name,
-                serial_number,
-                ..
-            } = display.info
-            {
-                if model_name.contains(&name) || serial_number.contains(&name) {
+            display
+                .info
+                .model_name
+                .as_ref()
+                .and_then(|model| {
                     display
-                }
-            }
+                        .info
+                        .serial_number
+                        .as_ref()
+                        .map(|serial| format!("{} {}", model, serial))
+                })
+                .and_then(|merged| merged.contains(name).then(|| ()))
+                .and_then(|_| display.update_capabilities().ok())
+                .map(|_| display)
         })
-        .map(|v| v)
-        .and_then(|_| display.update_capabilities().ok())
-        .map(|_| display)
-
-    //     display
-    //         .info
-    //         .serial_number
-    //         .as_ref()
-    //         .map(|v| v.contains(name))
-    //         .and_then(|_| display.update_capabilities().ok())
-    //         .map(|_| display)
-    // })
 }
