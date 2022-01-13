@@ -43,8 +43,12 @@ impl super::Capturer for Capturer {
                     .get_xdg_output(&output)
                     .quick_assign(move |_, event, _| {
                         if let Description { description } = event {
-                            log::debug!("description: {:?}", description);
-                            if description.starts_with(&desired_output) {
+                            if description.contains(&desired_output) {
+                                log::debug!(
+                                    "output matching '{:?}' found '{:?}'",
+                                    desired_output,
+                                    description
+                                );
                                 capturer
                                     .clone()
                                     .capture_frame(controller.clone(), output.clone())
@@ -77,7 +81,7 @@ impl Capturer {
             .expect("Unable to init export_dmabuf_manager");
 
         let xdg_output = globals
-            .instantiate_exact::<ZxdgOutputManagerV1>(2)
+            .instantiate_exact::<ZxdgOutputManagerV1>(3)
             .expect("Unable to init xdg_output");
 
         Self {
