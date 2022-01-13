@@ -42,23 +42,31 @@ In order to access backlight devices, `wluma` must either run as `root`, or pref
 
 The `config.toml` in repository represents default config values. To change them, copy the file into `$XDG_CONFIG_HOME/wluma/config.toml` and adjust as desired.
 
-## Debugging
-
-To enable logging, set environment variable `RUST_LOG` to one of these values: `error`, `warn`, `info`, `debug`, `trace`.
-
 ### ALS
 
 Choose whether to use a real IIO-based ambient light sensor (`[als.iio]`), a webcam-based simulation (`[als.webcam]`), a time-based simulation (`[als.time]`) or disable it altogether (`[als.none]`).
 
-`[als.iio]` contains a `thresholds` field, which comes with good default values. It is there to convert a generally exponential lux values into a linear scale to improve the prediction algorithm in `wluma`. A value of `[100, 200]` would mean that a raw lux value of `0..100` would get converted to `0`, a value of `100..200` would get converted to `1`, and `200+` would get converted to `2`.
+Each of them contains a `thresholds` field, which comes with good default values. It is there to convert generally exponential lux values into a linear scale to improve the prediction algorithm in `wluma`. Keys are the raw values from ambient light sensor (maximal value depends on the implementation), values are arbitrary "profiles". `wluma` will predict the best screen brightness according to the data learned within the same ALS profile.
 
-`[als.webcam]` contains a `video` field corresponding to your device (e.g. `0` for `/dev/video0`), as well as a `thresholds` field, just like in `[als.iio]`, which maps "perceived lightness" percentage (0..100) calculated from the webcam frame to a smaller subset of values (default value is recommended).
+### Displays
 
-`[als.time]` contains a `time_to_lux` mapping, which allows you to express how bright or dark it gets as the day passes by. This mode is primarily meant to let people who don't have a real ALS to try the app and get some meaningful results. Use linear smooth lux values, not raw ones - a range of `0..5` is recommended. A mapping of `{ 3 = 1, 7 = 2, 21 = 0 }` means that from `00:00` until `02:59` a value would be `0`, from `03:00` until `06:59` the value would be `2`, from `07:00` until `20:59` the value would be `2`, and finally between `21:00` and `23:59` the value would again be `0`.
+Multiple outputs are supported, using `backlight` (common for internal laptop screens) and `ddcutil` (for external screens).
+
+Each output is identified by compositor using model, manufacturer and serial number (e.g.`eDP-1 'Sharp Corporation 0x14A8 0x00000000' (eDP-1)`.
+
+The `name` field in the output config will be matched as a substring, so you are free to put simply `eDP-1`, or a serial number (if you have two identical external screens). It is your responsibility to make sure that the values you use match **uniquely** to one output only.
+
+_Tip:_ run `wluma` with `RUST_LOG=debug` to see how your outputs are being identified, so that you can choose an appropriate `name` configuration value.
 
 ## Run
 
 To run the app, simply launch `wluma` or use the provided systemd user service.
+
+## Debugging
+
+To enable logging, set environment variable `RUST_LOG` to one of these values: `error`, `warn`, `info`, `debug`, `trace`.
+
+For more complex selectors, see [env_logger's documentation](https://docs.rs/env_logger/latest/env_logger/#enabling-logging).
 
 ## Known issues (help wanted!)
 
@@ -66,7 +74,7 @@ Help is wanted and much appreciated! If you want to implement some of these, fee
 
 - Support for frames with custom DRM modifiers (e.g. multi-planar frames) is currently not implemented. This was recently [implemented in mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/1466) and can finally be added to `wluma`. Until then, a workaround is to export `WLR_DRM_NO_MODIFIERS=1` before launching your wlroots-based compositor.
 - Changing screen resolution while `wluma` is running is not supported yet, and should crash the app. Workaround: restart `wluma` after changing resolution.
-- Selecting screen is not implemented yet, on start `wluma` will pick one screen at random and use it. If the screen disappears (e.g. you launch `wluma` on laptop, then connect a docking station and disable internal screen), it should crash the app. Workaround: restart `wluma` after changing screens.
+- Plugging in a screen while `wluma` is running. Workaround: restart `wluma`.
 
 ## Relevant projects
 
