@@ -81,7 +81,7 @@ impl Capturer {
 
         let xdg_output = globals
             .instantiate_exact::<ZxdgOutputManagerV1>(3)
-            .expect("Unable to init xdg_output");
+            .expect("Unable to init xdg_output_manager");
 
         Self {
             event_queue: Rc::new(RefCell::new(event_queue)),
