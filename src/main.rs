@@ -9,6 +9,12 @@ mod frame;
 mod predictor;
 
 fn main() {
+    let panic_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        panic_hook(panic_info);
+        std::process::exit(1);
+    }));
+
     env_logger::init();
 
     let config = match config::Config::load() {
