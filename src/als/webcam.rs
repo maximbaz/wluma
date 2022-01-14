@@ -1,5 +1,6 @@
 use crate::frame::compute_perceived_lightness_percent;
 use crate::predictor::kalman::Kalman;
+use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
@@ -50,16 +51,35 @@ impl Webcam {
     }
 
     fn frame(&mut self) -> Result<(Vec<u8>, usize), Box<dyn Error>> {
-        let dev = Device::new(self.video)?;
-
-        let mut fmt = dev.format()?;
-        fmt.fourcc = FourCC::new(b"RGB3");
-        dev.set_format(&fmt)?;
-
-        let mut stream = Stream::new(&dev, Type::VideoCapture)?;
+        let (device, pixels) = Self::setup(self.video)?;
+        let mut stream = Stream::new(&device, Type::VideoCapture)?;
         let (rgbs, _) = stream.next()?;
 
-        Ok((rgbs.to_vec(), fmt.height as usize * fmt.width as usize))
+        Ok((rgbs.to_vec(), pixels))
+    }
+
+    fn setup(video: usize) -> Result<(Device, usize), Box<dyn Error>> {
+        let device = Device::new(video)?;
+        let mut format = device.format()?;
+        format.fourcc = FourCC::new(b"RGB3");
+        let (width, height) = device
+            .enum_framesizes(format.fourcc)?
+            .into_iter()
+            .flat_map(|f| {
+                f.size
+                    .to_discrete()
+                    .into_iter()
+                    .map(|d| (d.width, d.height))
+                    .collect_vec()
+            })
+            .min_by(|&(w1, h1), &(w2, h2)| h1.cmp(&h2).then(w1.cmp(&w2)))
+            .ok_or("Unable to find minimum resolution")?;
+
+        format.height = height;
+        format.width = width;
+        device.set_format(&format)?;
+
+        Ok((device, width as usize * height as usize))
     }
 }
 
