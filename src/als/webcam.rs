@@ -24,6 +24,19 @@ pub struct Webcam {
 }
 
 impl Webcam {
+    pub fn new(webcam_tx: Sender<u64>, video: usize) -> Self {
+        let (device, width, height) =
+            Self::setup(video).expect("Unable to get setup webcam device");
+
+        Self {
+            kalman: Kalman::new(1.0, 20.0, 10.0),
+            webcam_tx,
+            device,
+            width,
+            height,
+        }
+    }
+
     fn setup(video: usize) -> Result<(Device, usize, usize), Box<dyn Error>> {
         let device = Device::new(video)?;
         let mut format = device.format()?;
@@ -43,19 +56,6 @@ impl Webcam {
         );
 
         Ok((device, format.width as usize, format.height as usize))
-    }
-
-    pub fn new(webcam_tx: Sender<u64>, video: usize) -> Self {
-        let (device, width, height) =
-            Self::setup(video).expect("Unable to get setup webcam device");
-
-        Self {
-            kalman: Kalman::new(1.0, 20.0, 10.0),
-            webcam_tx,
-            device,
-            width,
-            height,
-        }
     }
 
     pub fn run(&mut self) {
