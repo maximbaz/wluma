@@ -30,7 +30,23 @@ Alternatively, download the [release artifact](https://github.com/maximbaz/wluma
 
 [![CI](https://github.com/maximbaz/wluma/actions/workflows/ci.yml/badge.svg)](https://github.com/maximbaz/wluma/actions/workflows/ci.yml)
 
+## Build requirements
+
 If you want to build the app yourself, make sure you use latest stable Rust, otherwise you might get compilation errors! Using `rustup` is perhaps the easiest.
+
+Also, some lib are required for the build process. You can install them with the following command:
+
+Ubuntu:
+
+```
+sudo apt-get -y install v4l-utils libv4l-dev libudev-dev clang
+```
+
+Archlinux:
+
+```
+sudo pacman -S v4l-utils clang
+```
 
 Then simply run `make build`.
 
