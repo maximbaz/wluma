@@ -1,5 +1,6 @@
 use crate::frame::compute_perceived_lightness_percent;
 use crate::predictor::kalman::Kalman;
+use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
@@ -50,8 +51,7 @@ impl Webcam {
     }
 
     fn frame(&mut self) -> Result<(Vec<u8>, usize), Box<dyn Error>> {
-        let (device, width, height) =
-            Self::setup(self.video).expect("Unable to setup webcam device");
+        let (device, width, height) = Self::setup(self.video)?;
         let mut stream = Stream::new(&device, Type::VideoCapture)?;
         let (rgbs, _) = stream.next()?;
 
@@ -62,21 +62,25 @@ impl Webcam {
         let device = Device::new(video)?;
         let mut format = device.format()?;
         format.fourcc = FourCC::new(b"RGB3");
-        for framesize in device.enum_framesizes(format.fourcc)? {
-            for discrete in framesize.size.to_discrete() {
-                format.width = discrete.width;
-                format.height = discrete.height;
-            }
-        }
+        let (width, height) = device
+            .enum_framesizes(format.fourcc)?
+            .into_iter()
+            .flat_map(|f| {
+                f.size
+                    .to_discrete()
+                    .into_iter()
+                    .map(|d| (d.width, d.height))
+                    .collect_vec()
+            })
+            .min_by(|x, y| x.1.cmp(&y.1))
+            .ok_or("Unable to minimum resolution")?;
+
+        log::debug!("ALS (webcam) resolution used: {:?}x{:?}", width, height);
+        format.height = height;
+        format.width = width;
         device.set_format(&format)?;
 
-        log::debug!(
-            "ALS (webcam): resolution: {:?}x{:?}",
-            format.width,
-            format.height
-        );
-
-        Ok((device, format.width as usize, format.height as usize))
+        Ok((device, width as usize, height as usize))
     }
 }
 
