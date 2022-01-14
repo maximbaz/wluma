@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use std::sync::mpsc;
-use std::thread;
 
 mod als;
 mod brightness;
@@ -68,7 +67,7 @@ fn main() {
 
                             brightness_controller.run();
                         })
-                        .expect("Unable to start als thread"),
+                        .expect("Unable to start backlight thread"),
                     std::thread::Builder::new()
                         .name(format!("predictor-{}", output_name))
                         .spawn(move || {
@@ -114,7 +113,7 @@ fn main() {
         .into_iter()
         .flatten()
         .chain(std::iter::once(
-            thread::Builder::new()
+            std::thread::Builder::new()
                 .name("als".to_string())
                 .spawn(move || {
                     let als: Box<dyn als::Als> = match config_als {
@@ -131,7 +130,7 @@ fn main() {
                             video, thresholds, ..
                         } => Box::new({
                             let (webcam_tx, webcam_rx) = mpsc::channel();
-                            thread::Builder::new()
+                            std::thread::Builder::new()
                                 .name("als-webcam".to_string())
                                 .spawn(move || {
                                     als::webcam::Webcam::new(webcam_tx, video).run();
