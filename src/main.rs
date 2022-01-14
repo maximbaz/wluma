@@ -24,32 +24,25 @@ fn main() {
 
     log::debug!("Using config: {:?}", config);
 
-    let config_outputs = config.output;
-    let config_als = config.als;
-
-    let als_txs = config_outputs
-        .into_iter()
-        .map(move |output| {
-            let config = match config::Config::load() {
-                Ok(config) => config,
-                Err(err) => panic!("Unable to load config: {}", err),
-            };
-
+    let als_txs = config
+        .output
+        .iter()
+        .map(|output| {
             let (als_tx, als_rx) = mpsc::channel();
             let (user_tx, user_rx) = mpsc::channel();
             let (prediction_tx, prediction_rx) = mpsc::channel();
 
-            let capturer_config = output.clone();
-
-            let output_name = match capturer_config {
+            let config_output_name = match output {
                 config::Output::Backlight(ref cfg) => &cfg.name,
                 config::Output::DdcUtil(ref cfg) => &cfg.name,
             };
-            let output_name_t1 = output_name.clone();
-            let output_name_t2 = output_name.clone();
+
+            let output = output.clone();
+            let output_name = config_output_name.clone();
+            let thread_name = format!("backlight-{}", output_name);
 
             std::thread::Builder::new()
-                .name(format!("backlight-{}", output_name))
+                .name(thread_name.clone())
                 .spawn(move || {
                     let brightness = match output {
                         config::Output::Backlight(cfg) => brightness::Backlight::new(&cfg.path)
@@ -64,18 +57,22 @@ fn main() {
                         }
                         Err(err) => log::warn!(
                             "Skipping output '{}' as it might be disconnected: {}",
-                            output_name_t1,
+                            output_name,
                             err
                         ),
                     };
                 })
-                .unwrap_or_else(|_| panic!("Unable to start thread: backlight-{}", output_name));
+                .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
+
+            let config_frame = config.frame.clone();
+            let output_name = config_output_name.clone();
+            let thread_name = format!("predictor-{}", output_name);
 
             std::thread::Builder::new()
-                .name(format!("predictor-{}", output_name))
+                .name(thread_name.clone())
                 .spawn(move || {
                     let frame_processor: Box<dyn frame::processor::Processor> =
-                        match config.frame.processor {
+                        match config_frame.processor {
                             config::Processor::Vulkan => Box::new(
                                 frame::processor::vulkan::Processor::new()
                                     .expect("Unable to initialize Vulkan"),
@@ -83,7 +80,7 @@ fn main() {
                         };
 
                     let frame_capturer: Box<dyn frame::capturer::Capturer> =
-                        match config.frame.capturer {
+                        match config_frame.capturer {
                             config::Capturer::Wlroots => {
                                 Box::new(frame::capturer::wlroots::Capturer::new(frame_processor))
                             }
@@ -97,11 +94,11 @@ fn main() {
                         user_rx,
                         als_rx,
                         true,
-                        &output_name_t2,
+                        &output_name,
                     );
-                    frame_capturer.run(&output_name_t2, controller)
+                    frame_capturer.run(&output_name, controller)
                 })
-                .unwrap_or_else(|_| panic!("Unable to start thread: predictor-{}", output_name));
+                .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
 
             als_tx
         })
@@ -110,7 +107,7 @@ fn main() {
     std::thread::Builder::new()
         .name("als".to_string())
         .spawn(move || {
-            let als: Box<dyn als::Als> = match config_als {
+            let als: Box<dyn als::Als> = match config.als {
                 config::Als::Iio {
                     path, thresholds, ..
                 } => Box::new(
