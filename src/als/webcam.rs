@@ -18,15 +18,39 @@ const WAITING_SLEEP_MS: u64 = 2000;
 pub struct Webcam {
     kalman: Kalman,
     webcam_tx: Sender<u64>,
-    video: usize,
+    device: Device,
+    width: usize,
+    height: usize,
 }
 
 impl Webcam {
+    fn setup(video: usize) -> Result<(Device, usize, usize), Box<dyn Error>> {
+        let device = Device::new(video)?;
+        let mut format = device.format()?;
+        format.fourcc = FourCC::new(b"RGB3");
+        for framesize in device.enum_framesizes(format.fourcc)? {
+            for discrete in framesize.size.to_discrete() {
+                format.width = discrete.width;
+                format.height = discrete.height;
+            }
+        }
+        device.set_format(&format)?;
+
+        log::debug!("webcam resolution: {:?}x{:?}", format.width, format.height);
+
+        Ok((device, format.width as usize, format.height as usize))
+    }
+
     pub fn new(webcam_tx: Sender<u64>, video: usize) -> Self {
+        let (device, width, height) =
+            Self::setup(video).expect("Unable to get setup webcam device");
+
         Self {
             kalman: Kalman::new(1.0, 20.0, 10.0),
             webcam_tx,
-            video,
+            device,
+            width,
+            height,
         }
     }
 
@@ -50,16 +74,10 @@ impl Webcam {
     }
 
     fn frame(&mut self) -> Result<(Vec<u8>, usize), Box<dyn Error>> {
-        let dev = Device::new(self.video)?;
-
-        let mut fmt = dev.format()?;
-        fmt.fourcc = FourCC::new(b"RGB3");
-        dev.set_format(&fmt)?;
-
-        let mut stream = Stream::new(&dev, Type::VideoCapture)?;
+        let mut stream = Stream::new(&self.device, Type::VideoCapture)?;
         let (rgbs, _) = stream.next()?;
 
-        Ok((rgbs.to_vec(), fmt.height as usize * fmt.width as usize))
+        Ok((rgbs.to_vec(), self.width * self.height))
     }
 }
 
