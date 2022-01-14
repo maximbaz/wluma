@@ -50,7 +50,7 @@ fn main() {
                 als_tx,
                 vec![
                     std::thread::Builder::new()
-                        .name(format!("backlight-{}", &output_name))
+                        .name(format!("backlight-{}", output_name))
                         .spawn(move || {
                             let brightness: Box<dyn brightness::Brightness> = match output {
                                 config::Output::Backlight(cfg) => Box::new(
@@ -68,9 +68,9 @@ fn main() {
 
                             brightness_controller.run();
                         })
-                        .unwrap(),
+                        .expect("Unable to start als thread"),
                     std::thread::Builder::new()
-                        .name(format!("predictor-{}", &output_name))
+                        .name(format!("predictor-{}", output_name))
                         .spawn(move || {
                             let frame_processor: Box<dyn frame::processor::Processor> =
                                 match config.frame.processor {
@@ -104,7 +104,7 @@ fn main() {
                             );
                             frame_capturer.run(&output_name, controller)
                         })
-                        .unwrap(),
+                        .expect("Unable to start predictor thread"),
                 ],
             )
         })
@@ -136,7 +136,7 @@ fn main() {
                                 .spawn(move || {
                                     als::webcam::Webcam::new(webcam_tx, video).run();
                                 })
-                                .unwrap();
+                                .expect("Unable to start webcam als");
                             als::webcam::Als::new(webcam_rx, thresholds)
                         }),
                         config::Als::None => Box::new(als::none::Als::default()),
@@ -144,7 +144,7 @@ fn main() {
 
                     als::controller::Controller::new(als, als_txs).run();
                 })
-                .unwrap(),
+                .expect("Unable to start als"),
         ))
         .collect_vec();
 
