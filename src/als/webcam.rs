@@ -72,7 +72,7 @@ impl Webcam {
                     .map(|d| (d.width, d.height))
                     .collect_vec()
             })
-            .min_by(|x, y| x.1.cmp(&y.1))
+            .min_by(|&(w1, h1), &(w2, h2)| h1.cmp(&h2).then(w1.cmp(&w2)))
             .ok_or("Unable to minimum resolution")?;
 
         log::debug!("ALS (webcam) resolution used: {:?}x{:?}", width, height);
