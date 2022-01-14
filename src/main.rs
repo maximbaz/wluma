@@ -40,10 +40,13 @@ fn main() {
             let (prediction_tx, prediction_rx) = mpsc::channel();
 
             let capturer_config = output.clone();
+
             let output_name = match capturer_config {
                 config::Output::Backlight(ref cfg) => &cfg.name,
                 config::Output::DdcUtil(ref cfg) => &cfg.name,
             };
+            let output_name_t1 = output_name.clone();
+            let output_name_t2 = output_name.clone();
 
             (
                 als_tx,
@@ -51,21 +54,25 @@ fn main() {
                     std::thread::Builder::new()
                         .name(format!("backlight-{}", output_name))
                         .spawn(move || {
-                            let brightness: Box<dyn brightness::Brightness> = match output {
-                                config::Output::Backlight(cfg) => Box::new(
+                            let brightness = match output {
+                                config::Output::Backlight(cfg) => {
                                     brightness::Backlight::new(&cfg.path)
-                                        .expect("Unable to initialize output backlight"),
-                                ),
-                                config::Output::DdcUtil(cfg) => Box::new(
-                                    brightness::DdcUtil::new(&cfg.name)
-                                        .expect("Unable to initialize output ddcutil"),
-                                ),
+                                        .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
+                                }
+                                config::Output::DdcUtil(cfg) => brightness::DdcUtil::new(&cfg.name)
+                                    .map(|b| Box::new(b) as Box<dyn brightness::Brightness>),
                             };
 
-                            let mut brightness_controller =
-                                brightness::Controller::new(brightness, user_tx, prediction_rx);
-
-                            brightness_controller.run();
+                            match brightness {
+                                Ok(b) => {
+                                    brightness::Controller::new(b, user_tx, prediction_rx).run();
+                                }
+                                Err(err) => log::warn!(
+                                    "Skipping output '{}' as it might be disconnected: {}",
+                                    output_name_t1,
+                                    err
+                                ),
+                            };
                         })
                         .expect("Unable to start backlight thread"),
                     std::thread::Builder::new()
@@ -89,19 +96,14 @@ fn main() {
                                     }
                                 };
 
-                            let output_name = match capturer_config {
-                                config::Output::Backlight(cfg) => cfg.name,
-                                config::Output::DdcUtil(cfg) => cfg.name,
-                            };
-
                             let controller = predictor::Controller::new(
                                 prediction_tx,
                                 user_rx,
                                 als_rx,
                                 true,
-                                &output_name,
+                                &output_name_t2,
                             );
-                            frame_capturer.run(&output_name, controller)
+                            frame_capturer.run(&output_name_t2, controller)
                         })
                         .expect("Unable to start predictor thread"),
                 ],

@@ -14,8 +14,8 @@ pub struct Controller {
     pending: Option<Entry>,
     data: Data,
     stateful: bool,
+    last_als: Option<String>,
     initial_brightness: Option<u64>,
-    last_als: String,
 }
 
 impl Controller {
@@ -32,24 +32,6 @@ impl Controller {
             Data::new(output_name)
         };
 
-        // Brightness controller is expected to send the initial value on this channel asap
-        let initial_brightness = user_rx
-            .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
-            .expect("Did not receive initial brightness value in time");
-
-        // ALS controller is expected to send the initial value on this channel asap
-        let last_als = als_rx
-            .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
-            .expect("Did not receive initial ALS value in time");
-
-        // If there are no learned entries yet, we will use this as the first data point,
-        // assuming that user is happy with the current brightness settings
-        let initial_brightness = if data.entries.is_empty() {
-            Some(initial_brightness)
-        } else {
-            None
-        };
-
         Self {
             prediction_tx,
             user_rx,
@@ -58,17 +40,43 @@ impl Controller {
             pending: None,
             data,
             stateful,
-            initial_brightness,
-            last_als,
+            initial_brightness: None,
+            last_als: None,
         }
     }
 
     pub fn adjust(&mut self, luma: u8) {
-        if let Some(als) = self.als_rx.try_iter().last() {
-            self.last_als = als;
+        if self.last_als.is_none() {
+            // ALS controller is expected to send the initial value on this channel asap
+            self.last_als = self
+                .als_rx
+                .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
+                .map_or_else(
+                    |_| panic!("Did not receive initial ALS value in time"),
+                    Some,
+                );
+
+            // Brightness controller is expected to send the initial value on this channel asap
+            let initial_brightness = self
+                .user_rx
+                .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
+                .map_or_else(
+                    |_| panic!("Did not receive initial brightness value in time"),
+                    Some,
+                );
+
+            // If there are no learned entries yet, we will use this as the first data point,
+            // assuming that user is happy with the current brightness settings
+            if self.data.entries.is_empty() {
+                self.initial_brightness = initial_brightness;
+            };
         }
 
-        let lux = &self.last_als.clone();
+        if let Some(als) = self.als_rx.try_iter().last() {
+            self.last_als = Some(als);
+        }
+
+        let lux = &self.last_als.clone().expect("ALS value must be known");
         self.process(lux, luma);
     }
 
