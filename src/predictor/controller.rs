@@ -3,8 +3,9 @@ use itertools::Itertools;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-const INITIAL_BRIGHTNESS_TIMEOUT_SECS: u64 = 2;
+const INITIAL_TIMEOUT_SECS: u64 = 2;
 const PENDING_COOLDOWN_RESET: u8 = 15;
+const NEXT_ALS_COOLDOWN_RESET: u8 = 15;
 
 pub struct Controller {
     prediction_tx: Sender<u64>,
@@ -14,8 +15,10 @@ pub struct Controller {
     pending: Option<Entry>,
     data: Data,
     stateful: bool,
-    last_als: Option<String>,
     initial_brightness: Option<u64>,
+    last_als: Option<String>,
+    next_als: Option<String>,
+    next_als_cooldown: u8,
 }
 
 impl Controller {
@@ -42,6 +45,8 @@ impl Controller {
             stateful,
             initial_brightness: None,
             last_als: None,
+            next_als: None,
+            next_als_cooldown: 0,
         }
     }
 
@@ -50,7 +55,7 @@ impl Controller {
             // ALS controller is expected to send the initial value on this channel asap
             self.last_als = self
                 .als_rx
-                .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
+                .recv_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
                 .map_or_else(
                     |_| panic!("Did not receive initial ALS value in time"),
                     Some,
@@ -59,7 +64,7 @@ impl Controller {
             // Brightness controller is expected to send the initial value on this channel asap
             let initial_brightness = self
                 .user_rx
-                .recv_timeout(Duration::from_secs(INITIAL_BRIGHTNESS_TIMEOUT_SECS))
+                .recv_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
                 .map_or_else(
                     |_| panic!("Did not receive initial brightness value in time"),
                     Some,
@@ -72,8 +77,19 @@ impl Controller {
             };
         }
 
-        if let Some(als) = self.als_rx.try_iter().last() {
-            self.last_als = Some(als);
+        match self.als_rx.try_iter().last() {
+            new_als @ Some(_) if self.next_als != new_als => {
+                self.next_als = new_als;
+                self.next_als_cooldown = NEXT_ALS_COOLDOWN_RESET;
+            }
+            _ if self.next_als_cooldown > 1 => {
+                self.next_als_cooldown -= 1;
+            }
+            _ if self.next_als_cooldown == 1 => {
+                self.next_als_cooldown = 0;
+                self.last_als = self.next_als.take();
+            }
+            _ => {}
         }
 
         let lux = &self.last_als.clone().expect("ALS value must be known");
