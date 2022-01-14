@@ -1,5 +1,4 @@
 use crate::frame::compute_perceived_lightness_percent;
-use crate::predictor::kalman::Kalman;
 use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -17,18 +16,13 @@ const DEFAULT_LUX: u64 = 100;
 const WAITING_SLEEP_MS: u64 = 2000;
 
 pub struct Webcam {
-    kalman: Kalman,
     webcam_tx: Sender<u64>,
     video: usize,
 }
 
 impl Webcam {
     pub fn new(webcam_tx: Sender<u64>, video: usize) -> Self {
-        Self {
-            kalman: Kalman::new(1.0, 20.0, 10.0),
-            webcam_tx,
-            video,
-        }
+        Self { webcam_tx, video }
     }
 
     pub fn run(&mut self) {
@@ -39,8 +33,7 @@ impl Webcam {
 
     fn step(&mut self) {
         if let Ok((rgbs, pixels)) = self.frame() {
-            let lux_raw = compute_perceived_lightness_percent(&rgbs, false, pixels) as u64;
-            let lux = self.kalman.process(lux_raw);
+            let lux = compute_perceived_lightness_percent(&rgbs, false, pixels) as u64;
 
             self.webcam_tx
                 .send(lux)
