@@ -36,7 +36,11 @@ impl Webcam {
         }
         device.set_format(&format)?;
 
-        log::debug!("webcam resolution: {:?}x{:?}", format.width, format.height);
+        log::debug!(
+            "ALS (webcam): resolution: {:?}x{:?}",
+            format.width,
+            format.height
+        );
 
         Ok((device, format.width as usize, format.height as usize))
     }
