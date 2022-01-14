@@ -45,7 +45,7 @@ fn main() {
                                     .expect("Unable to initialize output backlight"),
                             ),
                             config::Output::DdcUtil(cfg) => Box::new(
-                                brightness::DdcUtil::new(&cfg.serial_number)
+                                brightness::DdcUtil::new(&cfg.name)
                                     .expect("Unable to initialize output ddcutil"),
                             ),
                         };

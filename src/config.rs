@@ -65,7 +65,6 @@ pub struct BacklightOutput {
 #[derive(Deserialize, Debug, Clone)]
 pub struct DdcUtilOutput {
     pub name: String,
-    pub serial_number: String,
     #[serde(default)]
     pub use_contents: bool,
 }
