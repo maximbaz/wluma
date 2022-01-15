@@ -7,6 +7,7 @@ const DDC_BRIGHTNESS_FEATURE: FeatureCode = 0x10;
 
 pub struct DdcUtil {
     display: RefCell<Display>,
+    min_brightness: u64,
     max_brightness: u64,
 }
 
@@ -17,6 +18,7 @@ impl DdcUtil {
 
         Ok(Self {
             display: RefCell::new(display),
+            min_brightness,
             max_brightness,
         })
     }
@@ -33,7 +35,7 @@ impl super::Brightness for DdcUtil {
     }
 
     fn set(&self, value: u64) -> Result<u64, Box<dyn Error>> {
-        let value = value.max(1).min(self.max_brightness);
+        let value = value.max(self.min_brightness).min(self.max_brightness);
         self.display
             .borrow_mut()
             .handle

@@ -46,12 +46,15 @@ fn main() {
                 .name(thread_name.clone())
                 .spawn(move || {
                     let brightness = match output {
-                        config::Output::Backlight(cfg) => brightness::Backlight::new(&cfg.path)
-                            .map(|b| Box::new(b) as Box<dyn brightness::Brightness>),
-                        config::Output::DdcUtil(cfg) => brightness::DdcUtil::new(&cfg.name)
-                            .map(|b| Box::new(b) as Box<dyn brightness::Brightness>),
+                        config::Output::Backlight(cfg) => {
+                            brightness::Backlight::new(&cfg.path, cfg.min_brightness)
+                                .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
+                        }
+                        config::Output::DdcUtil(cfg) => {
+                            brightness::DdcUtil::new(&cfg.name, cfg.minimum)
+                                .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
+                        }
                     };
-
                     match brightness {
                         Ok(b) => {
                             brightness::Controller::new(b, user_tx, prediction_rx).run();
