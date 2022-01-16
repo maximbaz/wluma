@@ -10,8 +10,8 @@ pub struct DdcUtil {
 }
 
 impl DdcUtil {
-    pub fn new(serial_number: &str) -> Result<Self, Box<dyn Error>> {
-        let mut display = find_display_by_sn(serial_number).ok_or("Unable to find display")?;
+    pub fn new(name: &str) -> Result<Self, Box<dyn Error>> {
+        let mut display = find_display_by_name(name).ok_or("Unable to find display")?;
         let max_brightness = get_max_brightness(&mut display)?;
 
         Ok(Self {
@@ -48,13 +48,14 @@ fn get_max_brightness(display: &mut Display) -> Result<u64, Box<dyn Error>> {
         .maximum() as u64)
 }
 
-fn find_display_by_sn(name: &str) -> Option<Display> {
+fn find_display_by_name(name: &str) -> Option<Display> {
     let model = |display: &Display| display.info.model_name.clone();
     let serial = |display: &Display| display.info.serial_number.clone();
 
     ddc_hi::Display::enumerate()
         .into_iter()
         .find_map(|mut display| {
+            log::debug!("display found: {:?}", display.info);
             model(&display)
                 .and_then(|model| serial(&display).map(|serial| format!("{} {}", model, serial)))
                 .and_then(|merged| merged.contains(name).then(|| ()))
