@@ -1,4 +1,5 @@
 use ddc_hi::{Ddc, Display, FeatureCode};
+use itertools::Itertools;
 use std::cell::RefCell;
 use std::error::Error;
 
@@ -10,8 +11,8 @@ pub struct DdcUtil {
 }
 
 impl DdcUtil {
-    pub fn new(serial_number: &str) -> Result<Self, Box<dyn Error>> {
-        let mut display = find_display_by_sn(serial_number).ok_or("Unable to find display")?;
+    pub fn new(name: &str) -> Result<Self, Box<dyn Error>> {
+        let mut display = find_display_by_name(name).ok_or("Unable to find display")?;
         let max_brightness = get_max_brightness(&mut display)?;
 
         Ok(Self {
@@ -48,17 +49,33 @@ fn get_max_brightness(display: &mut Display) -> Result<u64, Box<dyn Error>> {
         .maximum() as u64)
 }
 
-fn find_display_by_sn(name: &str) -> Option<Display> {
-    let model = |display: &Display| display.info.model_name.clone();
-    let serial = |display: &Display| display.info.serial_number.clone();
-
-    ddc_hi::Display::enumerate()
+fn find_display_by_name(name: &str) -> Option<Display> {
+    let displays = ddc_hi::Display::enumerate()
         .into_iter()
-        .find_map(|mut display| {
-            model(&display)
-                .and_then(|model| serial(&display).map(|serial| format!("{} {}", model, serial)))
-                .and_then(|merged| merged.contains(name).then(|| ()))
-                .and_then(|_| display.update_capabilities().ok())
-                .map(|_| display)
+        .filter_map(|mut display| {
+            display.update_capabilities().ok().map(|_| {
+                let empty = "".to_string();
+                let merged = format!(
+                    "{} {}",
+                    display.info.model_name.as_ref().unwrap_or(&empty),
+                    display.info.serial_number.as_ref().unwrap_or(&empty)
+                );
+                (merged, display)
+            })
         })
+        .collect_vec();
+
+    log::debug!(
+        "ddcutil: Discovered displays: {:?}",
+        displays.iter().map(|(name, _)| name).collect_vec()
+    );
+
+    displays.into_iter().find_map(|(merged, display)| {
+        merged
+            .contains(name)
+            .then(|| {
+                log::debug!("ddcutil: Using display '{}' for config '{}'", merged, name);
+            })
+            .map(|_| display)
+    })
 }
