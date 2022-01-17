@@ -3,7 +3,7 @@ use itertools::Itertools;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-const INITIAL_TIMEOUT_SECS: u64 = 2;
+const INITIAL_TIMEOUT_SECS: u64 = 5;
 const PENDING_COOLDOWN_RESET: u8 = 15;
 const NEXT_ALS_COOLDOWN_RESET: u8 = 15;
 
