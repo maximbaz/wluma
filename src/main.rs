@@ -17,7 +17,7 @@ fn main() {
 
     env_logger::init();
 
-    let config = match config::Config::load() {
+    let config = match config::load() {
         Ok(config) => config,
         Err(err) => panic!("Unable to load config: {}", err),
     };
@@ -28,16 +28,17 @@ fn main() {
         .output
         .iter()
         .map(|output| {
+            let output = output.clone();
+
             let (als_tx, als_rx) = mpsc::channel();
             let (user_tx, user_rx) = mpsc::channel();
             let (prediction_tx, prediction_rx) = mpsc::channel();
 
-            let config_output_name = match output {
-                config::Output::Backlight(ref cfg) => &cfg.name,
-                config::Output::DdcUtil(ref cfg) => &cfg.name,
+            let (config_output_name, config_output_capturer) = match output.clone() {
+                config::Output::Backlight(cfg) => (cfg.name, cfg.capturer),
+                config::Output::DdcUtil(cfg) => (cfg.name, cfg.capturer),
             };
 
-            let output = output.clone();
             let output_name = config_output_name.clone();
             let thread_name = format!("backlight-{}", output_name);
 
@@ -64,23 +65,18 @@ fn main() {
                 })
                 .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
 
-            let config_frame = config.frame.clone();
-            let output_name = config_output_name.clone();
+            let output_name = config_output_name;
             let thread_name = format!("predictor-{}", output_name);
 
             std::thread::Builder::new()
                 .name(thread_name.clone())
                 .spawn(move || {
-                    let frame_processor: Box<dyn frame::processor::Processor> =
-                        match config_frame.processor {
-                            config::Processor::Vulkan => Box::new(
-                                frame::processor::vulkan::Processor::new()
-                                    .expect("Unable to initialize Vulkan"),
-                            ),
-                        };
-
+                    let frame_processor: Box<dyn frame::processor::Processor> = Box::new(
+                        frame::processor::vulkan::Processor::new()
+                            .expect("Unable to initialize Vulkan"),
+                    );
                     let frame_capturer: Box<dyn frame::capturer::Capturer> =
-                        match config_frame.capturer {
+                        match config_output_capturer {
                             config::Capturer::Wlroots => {
                                 Box::new(frame::capturer::wlroots::Capturer::new(frame_processor))
                             }
@@ -108,16 +104,12 @@ fn main() {
         .name("als".to_string())
         .spawn(move || {
             let als: Box<dyn als::Als> = match config.als {
-                config::Als::Iio {
-                    path, thresholds, ..
-                } => Box::new(
+                config::Als::Iio { path, thresholds } => Box::new(
                     als::iio::Als::new(&path, thresholds)
                         .expect("Unable to initialize ALS IIO sensor"),
                 ),
-                config::Als::Time { thresholds, .. } => Box::new(als::time::Als::new(thresholds)),
-                config::Als::Webcam {
-                    video, thresholds, ..
-                } => Box::new({
+                config::Als::Time { thresholds } => Box::new(als::time::Als::new(thresholds)),
+                config::Als::Webcam { video, thresholds } => Box::new({
                     let (webcam_tx, webcam_rx) = mpsc::channel();
                     std::thread::Builder::new()
                         .name("als-webcam".to_string())
