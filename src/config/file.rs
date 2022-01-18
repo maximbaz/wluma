@@ -47,6 +47,7 @@ pub struct DdcUtilOutput {
 
 #[derive(Deserialize, Debug)]
 pub struct Keyboard {
+    pub name: String,
     pub path: String,
 }
 
