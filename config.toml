@@ -1,7 +1,3 @@
-[frame]
-processor = "vulkan"
-# capturer = "none" # Does not capture screen contents, just uses ALS to predict ideal screen brightness
-
 [als.iio]
 path = "/sys/bus/iio/devices"
 thresholds = { 0 = "night", 20 = "dark", 80 = "dim", 250 = "normal", 500 = "bright", 800 = "outdoors" }
@@ -22,7 +18,7 @@ capturer = "wlroots"
 
 # [[output.ddcutil]]
 # name = "Dell Inc. DELL P2415Q"
-# capturer = "wlroots"
+# capturer = "none" # Does not capture screen contents, just uses ALS to predict ideal screen brightness
 
 [[keyboard]]
 path = "/sys/bus/platform/devices/dell-laptop/leds/dell::kbd_backlight"
