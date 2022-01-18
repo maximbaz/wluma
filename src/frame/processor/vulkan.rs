@@ -156,9 +156,20 @@ impl Processor {
         let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
 
         let buffer_memory_req = unsafe { device.get_buffer_memory_requirements(buffer) };
+
+        let device_memory_properties =
+            unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
+        let memory_type_index = find_memory_type_index(
+            &buffer_memory_req,
+            &device_memory_properties,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )
+        .expect("Unable to find suitable memory type for the index buffer.");
+
         let allocate_info = vk::MemoryAllocateInfo {
             allocation_size: buffer_memory_req.size,
-            memory_type_index: 0,
+            memory_type_index,
             ..Default::default()
         };
 
@@ -545,4 +556,19 @@ fn image_dimensions(frame: &Object) -> (u32, u32, u32) {
     let height = frame.height / 2;
     let mip_levels = f64::max(width.into(), height.into()).log2().floor() as u32 + 1;
     (width, height, mip_levels)
+}
+
+fn find_memory_type_index(
+    memory_req: &vk::MemoryRequirements,
+    memory_prop: &vk::PhysicalDeviceMemoryProperties,
+    flags: vk::MemoryPropertyFlags,
+) -> Option<u32> {
+    memory_prop.memory_types[..memory_prop.memory_type_count as _]
+        .iter()
+        .enumerate()
+        .find(|(index, memory_type)| {
+            (1 << index) & memory_req.memory_type_bits != 0
+                && memory_type.property_flags & flags == flags
+        })
+        .map(|(index, _memory_type)| index as _)
 }
