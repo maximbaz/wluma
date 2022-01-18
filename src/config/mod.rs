@@ -1,11 +1,17 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::error::Error;
 use std::fs;
 
 mod app;
 mod file;
 pub use app::*;
 
-pub fn load() -> Result<app::Config, toml::de::Error> {
+pub fn load() -> Result<app::Config, Box<dyn Error>> {
+    validate(parse()?)
+}
+
+fn parse() -> Result<app::Config, toml::de::Error> {
     let file_config = dirs::config_dir()
         .and_then(|config_dir| fs::read_to_string(&config_dir.join("wluma/config.toml")).ok())
         .unwrap_or_else(|| include_str!("../../config.toml").to_string());
@@ -67,4 +73,21 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
             file::Als::None => app::Als::None,
         },
     })
+}
+
+fn validate(config: app::Config) -> Result<app::Config, Box<dyn Error>> {
+    let names = config
+        .output
+        .iter()
+        .map(|output| match output {
+            app::Output::Backlight(app::BacklightOutput { name, .. }) => name,
+            app::Output::DdcUtil(DdcUtilOutput { name, .. }) => name,
+        })
+        .collect::<HashSet<_>>();
+
+    match (names.len(), names.len() == config.output.len()) {
+        (0, _) => Err("No output or keyboard configured".into()),
+        (_, false) => Err("Names of all outputs and keyboards are not unique".into()),
+        _ => Ok(config),
+    }
 }

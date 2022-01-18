@@ -24,11 +24,6 @@ fn main() {
 
     log::debug!("Using config: {:?}", config);
 
-    if config.output.is_empty() {
-        log::error!("No devices configured, aborting");
-        std::process::exit(1);
-    }
-
     let als_txs = config
         .output
         .iter()
