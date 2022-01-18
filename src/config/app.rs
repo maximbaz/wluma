@@ -63,16 +63,3 @@ pub struct Config {
     pub keyboard: Option<Keyboards>,
     pub output: Vec<Output>,
 }
-
-impl Config {
-    pub fn new() -> Self {
-        let als = Als::None;
-        let keyboard = None;
-        let output = vec![];
-        Config {
-            als,
-            keyboard,
-            output,
-        }
-    }
-}

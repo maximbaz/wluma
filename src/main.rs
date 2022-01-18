@@ -45,7 +45,7 @@ fn main() {
             std::thread::Builder::new()
                 .name(thread_name.clone())
                 .spawn(move || {
-                    let brightness = match output.clone() {
+                    let brightness = match output {
                         config::app::Output::Backlight(cfg) => {
                             brightness::Backlight::new(&cfg.path)
                                 .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
@@ -106,18 +106,12 @@ fn main() {
         .name("als".to_string())
         .spawn(move || {
             let als: Box<dyn als::Als> = match config.als {
-                config::app::Als::Iio {
-                    path, thresholds, ..
-                } => Box::new(
+                config::app::Als::Iio { path, thresholds } => Box::new(
                     als::iio::Als::new(&path, thresholds)
                         .expect("Unable to initialize ALS IIO sensor"),
                 ),
-                config::app::Als::Time { thresholds, .. } => {
-                    Box::new(als::time::Als::new(thresholds))
-                }
-                config::app::Als::Webcam {
-                    video, thresholds, ..
-                } => Box::new({
+                config::app::Als::Time { thresholds } => Box::new(als::time::Als::new(thresholds)),
+                config::app::Als::Webcam { video, thresholds } => Box::new({
                     let (webcam_tx, webcam_rx) = mpsc::channel();
                     std::thread::Builder::new()
                         .name("als-webcam".to_string())
