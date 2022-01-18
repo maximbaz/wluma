@@ -45,12 +45,6 @@ pub struct DdcUtilOutput {
     pub capturer: Capturer,
 }
 
-#[derive(Deserialize, Debug)]
-pub enum Output {
-    Backlight(BacklightOutput),
-    DdcUtil(DdcUtilOutput),
-}
-
 #[derive(Deserialize, Debug, Default)]
 #[serde(default)]
 pub struct Keyboards {

@@ -22,12 +22,6 @@ pub enum Als {
     None,
 }
 
-#[derive(Debug, Default)]
-pub struct OutputByType {
-    pub backlight: Vec<BacklightOutput>,
-    pub ddcutil: Vec<DdcUtilOutput>,
-}
-
 #[derive(Debug, Clone)]
 pub struct BacklightOutput {
     pub name: String,
