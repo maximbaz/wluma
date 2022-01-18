@@ -19,6 +19,7 @@ pub struct Controller {
     last_als: Option<String>,
     next_als: Option<String>,
     next_als_cooldown: u8,
+    output_name: String,
 }
 
 impl Controller {
@@ -47,6 +48,7 @@ impl Controller {
             last_als: None,
             next_als: None,
             next_als_cooldown: 0,
+            output_name: output_name.to_string(),
         }
     }
 
@@ -121,7 +123,7 @@ impl Controller {
 
     fn learn(&mut self) {
         let pending = self.pending.take().expect("No pending entry to learn");
-        log::debug!("Learning {:?}", pending);
+        log::debug!("[{}] Learning {:?}", self.output_name, pending);
 
         self.data.entries.retain(|entry| {
             let different_env = entry.lux != pending.lux;
