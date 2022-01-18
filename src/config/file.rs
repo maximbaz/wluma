@@ -1,17 +1,11 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Capturer {
     Wlroots,
     None,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum Processor {
-    Vulkan,
 }
 
 #[derive(Deserialize, Debug)]
@@ -38,20 +32,20 @@ pub struct OutputByType {
     pub ddcutil: Vec<DdcUtilOutput>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub struct BacklightOutput {
     pub name: String,
     pub path: String,
     pub capturer: Capturer,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub struct DdcUtilOutput {
     pub name: String,
     pub capturer: Capturer,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub enum Output {
     Backlight(BacklightOutput),
     DdcUtil(DdcUtilOutput),
