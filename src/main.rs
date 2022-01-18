@@ -25,7 +25,7 @@ fn main() {
     log::debug!("Using config: {:?}", config);
 
     if config.output.is_empty() {
-        log::error!("No output devices configured, aborting");
+        log::error!("No devices configured, aborting");
         std::process::exit(1);
     }
 
