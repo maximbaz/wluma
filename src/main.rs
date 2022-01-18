@@ -30,79 +30,80 @@ fn main() {
     let als_txs = config
         .output
         .iter()
-        .map(|output| {
+        .filter_map(|output| {
             let output = output.clone();
 
             let (als_tx, als_rx) = mpsc::channel();
             let (user_tx, user_rx) = mpsc::channel();
             let (prediction_tx, prediction_rx) = mpsc::channel();
 
-            let (config_output_name, config_output_capturer) = match output.clone() {
+            let (output_name, output_capturer) = match output.clone() {
                 config::Output::Backlight(cfg) => (cfg.name, cfg.capturer),
                 config::Output::DdcUtil(cfg) => (cfg.name, cfg.capturer),
             };
 
-            let output_name = config_output_name.clone();
-            let thread_name = format!("backlight-{}", output_name);
+            let brightness = match output {
+                config::Output::Backlight(cfg) => {
+                    brightness::Backlight::new(&cfg.path, cfg.min_brightness)
+                        .map(|b| Box::new(b) as Box<dyn brightness::Brightness + Send>)
+                }
+                config::Output::DdcUtil(cfg) => {
+                    brightness::DdcUtil::new(&cfg.name, cfg.min_brightness)
+                        .map(|b| Box::new(b) as Box<dyn brightness::Brightness + Send>)
+                }
+            };
 
-            std::thread::Builder::new()
-                .name(thread_name.clone())
-                .spawn(move || {
-                    let brightness = match output {
-                        config::Output::Backlight(cfg) => {
-                            brightness::Backlight::new(&cfg.path, cfg.min_brightness)
-                                .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
-                        }
-                        config::Output::DdcUtil(cfg) => {
-                            brightness::DdcUtil::new(&cfg.name, cfg.min_brightness)
-                                .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
-                        }
-                    };
-                    match brightness {
-                        Ok(b) => {
+            match brightness {
+                Ok(b) => {
+                    let thread_name = format!("backlight-{}", output_name);
+                    std::thread::Builder::new()
+                        .name(thread_name.clone())
+                        .spawn(move || {
                             brightness::Controller::new(b, user_tx, prediction_rx).run();
-                        }
-                        Err(err) => log::warn!(
-                            "Skipping '{}' as it might be disconnected: {}",
-                            output_name,
-                            err
-                        ),
-                    };
-                })
-                .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
+                        })
+                        .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
 
-            let output_name = config_output_name;
-            let thread_name = format!("predictor-{}", output_name);
+                    let thread_name = format!("predictor-{}", output_name);
+                    std::thread::Builder::new()
+                        .name(thread_name.clone())
+                        .spawn(move || {
+                            let frame_processor = Box::new(
+                                frame::processor::vulkan::Processor::new()
+                                    .expect("Unable to initialize Vulkan"),
+                            );
+                            let frame_capturer: Box<dyn frame::capturer::Capturer> =
+                                match output_capturer {
+                                    config::Capturer::Wlroots => Box::new(
+                                        frame::capturer::wlroots::Capturer::new(frame_processor),
+                                    ),
+                                    config::Capturer::None => {
+                                        Box::new(frame::capturer::none::Capturer::default())
+                                    }
+                                };
 
-            std::thread::Builder::new()
-                .name(thread_name.clone())
-                .spawn(move || {
-                    let frame_processor: Box<dyn frame::processor::Processor> = Box::new(
-                        frame::processor::vulkan::Processor::new()
-                            .expect("Unable to initialize Vulkan"),
+                            let controller = predictor::Controller::new(
+                                prediction_tx,
+                                user_rx,
+                                als_rx,
+                                true,
+                                &output_name,
+                            );
+                            frame_capturer.run(&output_name, controller)
+                        })
+                        .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
+
+                    Some(als_tx)
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Skipping '{}' as it might be disconnected: {}",
+                        output_name,
+                        err
                     );
-                    let frame_capturer: Box<dyn frame::capturer::Capturer> =
-                        match config_output_capturer {
-                            config::Capturer::Wlroots => {
-                                Box::new(frame::capturer::wlroots::Capturer::new(frame_processor))
-                            }
-                            config::Capturer::None => {
-                                Box::new(frame::capturer::none::Capturer::default())
-                            }
-                        };
 
-                    let controller = predictor::Controller::new(
-                        prediction_tx,
-                        user_rx,
-                        als_rx,
-                        true,
-                        &output_name,
-                    );
-                    frame_capturer.run(&output_name, controller)
-                })
-                .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
-
-            als_tx
+                    None
+                }
+            }
         })
         .collect_vec();
 
