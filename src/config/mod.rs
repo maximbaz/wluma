@@ -21,31 +21,25 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
             .output
             .backlight
             .into_iter()
-            .map(|o| app::Output::Backlight {
-                0: app::BacklightOutput {
+            .map(|o| {
+                app::Output::Backlight(app::BacklightOutput {
                     name: o.name,
                     path: o.path,
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
                         file::Capturer::Wlroots => app::Capturer::Wlroots,
                     },
-                },
+                })
             })
-            .chain(
-                file_config
-                    .output
-                    .ddcutil
-                    .into_iter()
-                    .map(|o| app::Output::DdcUtil {
-                        0: app::DdcUtilOutput {
-                            name: o.name,
-                            capturer: match o.capturer {
-                                file::Capturer::None => app::Capturer::None,
-                                file::Capturer::Wlroots => app::Capturer::Wlroots,
-                            },
-                        },
-                    }),
-            )
+            .chain(file_config.output.ddcutil.into_iter().map(|o| {
+                app::Output::DdcUtil(app::DdcUtilOutput {
+                    name: o.name,
+                    capturer: match o.capturer {
+                        file::Capturer::None => app::Capturer::None,
+                        file::Capturer::Wlroots => app::Capturer::Wlroots,
+                    },
+                })
+            }))
             .collect(),
 
         als: match file_config.als {
