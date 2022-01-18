@@ -35,8 +35,8 @@ fn main() {
             let (prediction_tx, prediction_rx) = mpsc::channel();
 
             let (config_output_name, config_output_capturer) = match output.clone() {
-                config::app::Output::Backlight(cfg) => (cfg.name, cfg.capturer),
-                config::app::Output::DdcUtil(cfg) => (cfg.name, cfg.capturer),
+                config::Output::Backlight(cfg) => (cfg.name, cfg.capturer),
+                config::Output::DdcUtil(cfg) => (cfg.name, cfg.capturer),
             };
 
             let output_name = config_output_name.clone();
@@ -46,11 +46,9 @@ fn main() {
                 .name(thread_name.clone())
                 .spawn(move || {
                     let brightness = match output {
-                        config::app::Output::Backlight(cfg) => {
-                            brightness::Backlight::new(&cfg.path)
-                                .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
-                        }
-                        config::app::Output::DdcUtil(cfg) => brightness::DdcUtil::new(&cfg.name)
+                        config::Output::Backlight(cfg) => brightness::Backlight::new(&cfg.path)
+                            .map(|b| Box::new(b) as Box<dyn brightness::Brightness>),
+                        config::Output::DdcUtil(cfg) => brightness::DdcUtil::new(&cfg.name)
                             .map(|b| Box::new(b) as Box<dyn brightness::Brightness>),
                     };
 
@@ -79,10 +77,10 @@ fn main() {
                     );
                     let frame_capturer: Box<dyn frame::capturer::Capturer> =
                         match config_output_capturer {
-                            config::app::Capturer::Wlroots => {
+                            config::Capturer::Wlroots => {
                                 Box::new(frame::capturer::wlroots::Capturer::new(frame_processor))
                             }
-                            config::app::Capturer::None => {
+                            config::Capturer::None => {
                                 Box::new(frame::capturer::none::Capturer::default())
                             }
                         };
@@ -106,12 +104,12 @@ fn main() {
         .name("als".to_string())
         .spawn(move || {
             let als: Box<dyn als::Als> = match config.als {
-                config::app::Als::Iio { path, thresholds } => Box::new(
+                config::Als::Iio { path, thresholds } => Box::new(
                     als::iio::Als::new(&path, thresholds)
                         .expect("Unable to initialize ALS IIO sensor"),
                 ),
-                config::app::Als::Time { thresholds } => Box::new(als::time::Als::new(thresholds)),
-                config::app::Als::Webcam { video, thresholds } => Box::new({
+                config::Als::Time { thresholds } => Box::new(als::time::Als::new(thresholds)),
+                config::Als::Webcam { video, thresholds } => Box::new({
                     let (webcam_tx, webcam_rx) = mpsc::channel();
                     std::thread::Builder::new()
                         .name("als-webcam".to_string())
@@ -121,7 +119,7 @@ fn main() {
                         .expect("Unable to start thread: als-webcam");
                     als::webcam::Als::new(webcam_rx, thresholds)
                 }),
-                config::app::Als::None => Box::new(als::none::Als::default()),
+                config::Als::None => Box::new(als::none::Als::default()),
             };
 
             als::controller::Controller::new(als, als_txs).run();

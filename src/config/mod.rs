@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fs;
 
-pub mod app;
-pub mod file;
+mod app;
+mod file;
+pub use app::*;
 
 pub fn load() -> Result<app::Config, toml::de::Error> {
     let file_config = dirs::config_dir()
