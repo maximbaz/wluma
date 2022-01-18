@@ -43,12 +43,6 @@ pub enum Output {
     DdcUtil(DdcUtilOutput),
 }
 
-// #[derive(Debug)]
-// pub struct Keyboard {
-//     pub path: String,
-//     pub min_brightness: u64,
-// }
-
 #[derive(Debug)]
 pub struct Config {
     pub als: Als,

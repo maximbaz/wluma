@@ -54,5 +54,6 @@ pub struct Keyboard {
 pub struct Config {
     pub als: Als,
     pub output: OutputByType,
-    pub keyboard: Option<Vec<Keyboard>>,
+    #[serde(default)]
+    pub keyboard: Vec<Keyboard>,
 }

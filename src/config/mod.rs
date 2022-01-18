@@ -42,21 +42,14 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
                     },
                 })
             }))
-            .chain(
-                file_config
-                    .keyboard
-                    .unwrap()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, k)| {
-                        app::Output::Backlight(app::BacklightOutput {
-                            name: format!("keyboard {}", i),
-                            path: k.path,
-                            min_brightness: 0,
-                            capturer: Capturer::None,
-                        })
-                    }),
-            )
+            .chain(file_config.keyboard.into_iter().enumerate().map(|(i, k)| {
+                app::Output::Backlight(app::BacklightOutput {
+                    name: format!("keyboard {}", i),
+                    path: k.path,
+                    min_brightness: 0,
+                    capturer: Capturer::None,
+                })
+            }))
             .collect(),
 
         als: match file_config.als {
