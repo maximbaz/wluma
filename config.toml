@@ -18,7 +18,6 @@ thresholds = { 0 = "night", 20 = "dark", 80 = "dim", 250 = "normal", 500 = "brig
 [[output.backlight]]
 name = "eDP-1"
 path = "/sys/class/backlight/intel_backlight"
-min_brightness = 1
 capturer = "wlroots"
 
 # [[output.ddcutil]]
@@ -27,10 +26,6 @@ capturer = "wlroots"
 
 [[keyboard]]
 path = "/sys/bus/platform/devices/dell-laptop/leds/dell::kbd_backlight"
-min_brightness = 0
-capturer = "none"
 
 # [[keyboard]]
 # path = "/sys/bus/platform/devices/thinkpad_acpi/leds/tpacpi::kbd_backlight"
-# min_brightness = 0
-# capturer = "none"

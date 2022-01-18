@@ -12,7 +12,7 @@ pub struct DdcUtil {
 }
 
 impl DdcUtil {
-    pub fn new(name: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(name: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
         let mut display = find_display_by_name(name).ok_or("Unable to find display")?;
         let max_brightness = get_max_brightness(&mut display)?;
 

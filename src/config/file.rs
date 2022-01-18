@@ -45,12 +45,6 @@ pub struct DdcUtilOutput {
     pub capturer: Capturer,
 }
 
-#[derive(Deserialize, Debug, Default)]
-#[serde(default)]
-pub struct Keyboards {
-    pub backlight: HashMap<String, Keyboard>,
-}
-
 #[derive(Deserialize, Debug)]
 pub struct Keyboard {
     pub path: String,
@@ -60,5 +54,5 @@ pub struct Keyboard {
 pub struct Config {
     pub als: Als,
     pub output: OutputByType,
-    pub keyboard: Option<Keyboards>,
+    pub keyboard: Option<Vec<Keyboard>>,
 }

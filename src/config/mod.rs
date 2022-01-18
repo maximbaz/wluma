@@ -17,7 +17,6 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
     };
 
     toml::from_str(&file_config).map(|file_config: file::Config| app::Config {
-        keyboard: None,
         output: file_config
             .output
             .backlight
@@ -26,6 +25,7 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
                 app::Output::Backlight(app::BacklightOutput {
                     name: o.name,
                     path: o.path,
+                    min_brightness: 1,
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
                         file::Capturer::Wlroots => app::Capturer::Wlroots,
@@ -35,12 +35,28 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
             .chain(file_config.output.ddcutil.into_iter().map(|o| {
                 app::Output::DdcUtil(app::DdcUtilOutput {
                     name: o.name,
+                    min_brightness: 1,
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
                         file::Capturer::Wlroots => app::Capturer::Wlroots,
                     },
                 })
             }))
+            .chain(
+                file_config
+                    .keyboard
+                    .unwrap()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, k)| {
+                        app::Output::Backlight(app::BacklightOutput {
+                            name: format!("keyboard {}", i),
+                            path: k.path,
+                            min_brightness: 0,
+                            capturer: Capturer::None,
+                        })
+                    }),
+            )
             .collect(),
 
         als: match file_config.als {

@@ -51,7 +51,7 @@ fn main() {
                                 .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
                         }
                         config::Output::DdcUtil(cfg) => {
-                            brightness::DdcUtil::new(&cfg.name, cfg.minimum)
+                            brightness::DdcUtil::new(&cfg.name, cfg.min_brightness)
                                 .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
                         }
                     };
