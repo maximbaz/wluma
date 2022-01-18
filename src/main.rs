@@ -60,7 +60,7 @@ fn main() {
                             brightness::Controller::new(b, user_tx, prediction_rx).run();
                         }
                         Err(err) => log::warn!(
-                            "Skipping output '{}' as it might be disconnected: {}",
+                            "Skipping '{}' as it might be disconnected: {}",
                             output_name,
                             err
                         ),
