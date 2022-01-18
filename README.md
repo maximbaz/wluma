@@ -56,6 +56,8 @@ Each output is identified by compositor using model, manufacturer and serial num
 
 The `name` field in the output config will be matched as a substring, so you are free to put simply `eDP-1`, or a serial number (if you have two identical external screens). It is your responsibility to make sure that the values you use match **uniquely** to one output only.
 
+The `capturer` field will determine how screen contents will be captured. Currently supported values are `wlroots` (works only on wlroots-based Wayland compositors) and `none` (ignores screen contents and predicts brightness only based on ALS).
+
 _Tip:_ run `wluma` with `RUST_LOG=debug` to see how your outputs are being identified, so that you can choose an appropriate `name` configuration value.
 
 ## Run

@@ -18,7 +18,7 @@ capturer = "wlroots"
 
 # [[output.ddcutil]]
 # name = "Dell Inc. DELL P2415Q"
-# capturer = "none" # Does not capture screen contents, just uses ALS to predict ideal screen brightness
+# capturer = "none"
 
 [[keyboard]]
 name = "keyboard-dell"
