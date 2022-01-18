@@ -68,7 +68,7 @@ fn find_display_by_name(name: &str) -> Option<Display> {
         .collect_vec();
 
     log::debug!(
-        "ddcutil: Discovered displays: {:?}",
+        "Discovered displays: {:?}",
         displays.iter().map(|(name, _)| name).collect_vec()
     );
 
@@ -76,7 +76,7 @@ fn find_display_by_name(name: &str) -> Option<Display> {
         merged
             .contains(name)
             .then(|| {
-                log::debug!("ddcutil: Using display '{}' for config '{}'", merged, name);
+                log::debug!("Using display '{}' for config '{}'", merged, name);
             })
             .map(|_| display)
     })

@@ -44,7 +44,7 @@ impl super::Capturer for Capturer {
                     .quick_assign(move |_, event, _| match event {
                         Description { description } if description.contains(&desired_output) => {
                             log::debug!(
-                                "wlroots: Using output '{}' for config '{}'",
+                                "Using output '{}' for config '{}'",
                                 description,
                                 desired_output,
                             );
