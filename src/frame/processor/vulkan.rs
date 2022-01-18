@@ -165,7 +165,7 @@ impl Processor {
             &device_memory_properties,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )
-        .expect("Unable to find suitable memory type for the index buffer.");
+        .ok_or("Unable to find suitable memory type for the index buffer")?;
 
         let allocate_info = vk::MemoryAllocateInfo {
             allocation_size: buffer_memory_req.size,
