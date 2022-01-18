@@ -165,7 +165,7 @@ impl Processor {
             &device_memory_properties,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )
-        .ok_or("Unable to find suitable memory type for the index buffer")?;
+        .ok_or("Unable to find suitable memory type for the buffer")?;
 
         let allocate_info = vk::MemoryAllocateInfo {
             allocation_size: buffer_memory_req.size,
@@ -570,5 +570,5 @@ fn find_memory_type_index(
             (1 << index) & memory_req.memory_type_bits != 0
                 && memory_type.property_flags & flags == flags
         })
-        .map(|(index, _memory_type)| index as _)
+        .map(|(index, _)| index as _)
 }
