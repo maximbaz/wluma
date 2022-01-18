@@ -100,7 +100,7 @@ impl Processor {
             vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
         ];
 
-        let entry = unsafe { Entry::new()? };
+        let entry = unsafe { Entry::load()? };
 
         let create_info = vk::InstanceCreateInfo::builder()
             .application_info(&app_info)
