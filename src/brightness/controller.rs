@@ -11,7 +11,7 @@ pub struct Controller {
     brightness: Box<dyn Brightness>,
     user_tx: Sender<u64>,
     prediction_rx: Receiver<u64>,
-    current: u64,
+    current: Option<u64>,
     target: Option<Target>,
 }
 
@@ -37,7 +37,7 @@ impl Controller {
             brightness,
             user_tx,
             prediction_rx,
-            current: 0,
+            current: None,
             target: None,
         }
     }
@@ -52,7 +52,7 @@ impl Controller {
         match self.brightness.get() {
             Ok(new_brightness) => {
                 // 1. check if user wants to learn a new value - this overrides any ongoing activity
-                if new_brightness != self.current {
+                if Some(new_brightness) != self.current {
                     return self.update_current(new_brightness);
                 }
 
@@ -74,7 +74,7 @@ impl Controller {
     }
 
     fn update_current(&mut self, new_brightness: u64) {
-        self.current = new_brightness;
+        self.current = Some(new_brightness);
         self.user_tx
             .send(new_brightness)
             .expect("Unable to send new brightness value set by user, channel is dead");
@@ -82,36 +82,40 @@ impl Controller {
     }
 
     fn update_target(&mut self, desired: u64) {
-        match &self.target {
-            Some(old_target) if old_target.desired == desired => (),
-            _ if desired == self.current => (),
-            _ => {
-                let step = if desired > self.current {
-                    div_ceil(desired - self.current, TRANSITION_MAX_MS)
+        match (&self.target, self.current) {
+            (Some(old_target), _) if old_target.desired == desired => (),
+            (_, Some(current)) if desired == current => (),
+            (_, Some(current)) => {
+                let step = if desired > current {
+                    div_ceil(desired - current, TRANSITION_MAX_MS)
                 } else {
-                    -div_ceil(self.current - desired, TRANSITION_MAX_MS)
+                    -div_ceil(current - desired, TRANSITION_MAX_MS)
                 };
                 self.target = Some(Target { desired, step });
             }
+            _ => unreachable!("Current value cannot be None at this point"),
         };
     }
 
     fn transition(&mut self) {
-        if let Some(target) = &self.target {
-            if target.reached(self.current) {
-                self.target = None;
-            } else {
-                let new_value = (self.current as i64 + target.step).max(0) as u64;
-                match self.brightness.set(new_value) {
-                    Ok(current) => self.current = current,
-                    Err(err) => log::error!(
-                        "Unable to set brightness to value '{}': {:?}",
-                        new_value,
-                        err
-                    ),
-                };
-                thread::sleep(Duration::from_millis(TRANSITION_STEP_MS));
+        match (&self.target, self.current) {
+            (Some(target), Some(current)) => {
+                if target.reached(current) {
+                    self.target = None;
+                } else {
+                    let new_value = (current as i64 + target.step).max(0) as u64;
+                    match self.brightness.set(new_value) {
+                        Ok(new_value) => self.current = Some(new_value),
+                        Err(err) => log::error!(
+                            "Unable to set brightness to value '{}': {:?}",
+                            new_value,
+                            err
+                        ),
+                    };
+                    thread::sleep(Duration::from_millis(TRANSITION_STEP_MS));
+                }
             }
+            _ => unreachable!("Current and target values cannot be None at this point"),
         }
     }
 }
@@ -153,8 +157,31 @@ mod tests {
         controller.step();
 
         // a real current brightness level is respected and sent to predictor
-        assert_eq!(42, controller.current);
+        assert_eq!(Some(42), controller.current);
         assert_eq!(42, user_rx.try_recv()?);
+        assert_eq!(true, controller.target.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_step_first_run_brightness_zero() -> Result<(), Box<dyn Error>> {
+        let mut brightness_mock = MockBrightness::new();
+
+        // if the current brightness value is zero...
+        brightness_mock.expect_get().return_once(|| Ok(0));
+
+        let (mut controller, prediction_tx, user_rx) = setup(brightness_mock);
+
+        // even if predictor already wants a change...
+        prediction_tx.send(37)?;
+
+        // when we execute the first step...
+        controller.step();
+
+        // a brightness value of zero is being sent to predictor
+        assert_eq!(Some(0), controller.current);
+        assert_eq!(0, user_rx.try_recv()?);
         assert_eq!(true, controller.target.is_none());
 
         Ok(())
@@ -167,7 +194,7 @@ mod tests {
         let (mut controller, prediction_tx, user_rx) = setup(brightness_mock);
 
         // when last brightness differs from the current one
-        controller.current = 66;
+        controller.current = Some(66);
 
         // even if predictor wants a change...
         prediction_tx.send(37)?;
@@ -179,7 +206,7 @@ mod tests {
         controller.step();
 
         // we notice a change in brightness made by user and that takes priority
-        assert_eq!(42, controller.current);
+        assert_eq!(Some(42), controller.current);
         assert_eq!(42, user_rx.try_recv()?);
         assert_eq!(true, controller.target.is_none());
 
@@ -191,7 +218,7 @@ mod tests {
         let old_target = Some(target(10, -20));
         let (mut controller, _, _) = setup(MockBrightness::new());
         controller.target = old_target;
-        controller.current = 7;
+        controller.current = Some(7);
 
         controller.update_target(10);
 
@@ -203,7 +230,7 @@ mod tests {
         let old_target = Some(target(10, -20));
         let (mut controller, _, _) = setup(MockBrightness::new());
         controller.target = old_target;
-        controller.current = 7;
+        controller.current = Some(7);
 
         controller.update_target(7);
 
@@ -213,7 +240,7 @@ mod tests {
     #[test]
     fn test_update_target_finds_minimal_step_that_reaches_target_within_transition_duration() {
         let (mut controller, _, _) = setup(MockBrightness::new());
-        controller.current = 10000;
+        controller.current = Some(10000);
 
         let test_cases = vec![
             (10001, 1),
@@ -239,7 +266,7 @@ mod tests {
     #[test]
     fn test_transition_reset_target_when_reached() {
         let (mut controller, _, _) = setup(MockBrightness::new());
-        controller.current = 10;
+        controller.current = Some(10);
         controller.target = Some(target(10, 20));
 
         controller.transition();
@@ -256,12 +283,12 @@ mod tests {
             .times(1)
             .returning(Ok);
         let (mut controller, _, _) = setup(brightness_mock);
-        controller.current = 10;
+        controller.current = Some(10);
         controller.target = Some(target(20, 2));
 
         controller.transition();
 
-        assert_eq!(12, controller.current);
+        assert_eq!(Some(12), controller.current);
     }
 
     #[test]
@@ -273,12 +300,12 @@ mod tests {
             .times(1)
             .returning(Ok);
         let (mut controller, _, _) = setup(brightness_mock);
-        controller.current = 10;
+        controller.current = Some(10);
         controller.target = Some(target(9, -1));
 
         controller.transition();
 
-        assert_eq!(9, controller.current);
+        assert_eq!(Some(9), controller.current);
     }
 
     #[test]
@@ -290,12 +317,12 @@ mod tests {
             .times(1)
             .returning(Ok);
         let (mut controller, _, _) = setup(brightness_mock);
-        controller.current = 1;
+        controller.current = Some(1);
         controller.target = Some(target(0, -2)); // step of -2 should not overshoot
 
         controller.transition();
 
-        assert_eq!(0, controller.current);
+        assert_eq!(Some(0), controller.current);
     }
 
     #[test]
