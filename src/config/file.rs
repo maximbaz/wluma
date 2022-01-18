@@ -54,6 +54,7 @@ pub struct Keyboard {
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub als: Als,
+    #[serde(default)]
     pub output: OutputByType,
     #[serde(default)]
     pub keyboard: Vec<Keyboard>,
