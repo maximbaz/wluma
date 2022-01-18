@@ -21,6 +21,7 @@ capturer = "wlroots"
 # capturer = "none" # Does not capture screen contents, just uses ALS to predict ideal screen brightness
 
 [[keyboard]]
+name = "laptop"
 path = "/sys/bus/platform/devices/dell-laptop/leds/dell::kbd_backlight"
 
 # [[keyboard]]
