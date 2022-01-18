@@ -11,7 +11,7 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
 
     let parse_als_thresholds = |t: HashMap<String, String>| -> HashMap<u64, String> {
         t.into_iter()
-            .map(|(k, v)| (k.parse::<u64>().unwrap(), v))
+            .map(|(k, v)| (k.parse().unwrap(), v))
             .collect()
     };
 
@@ -21,11 +21,11 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
             .output
             .backlight
             .into_iter()
-            .map(|x| app::Output::Backlight {
+            .map(|o| app::Output::Backlight {
                 0: app::BacklightOutput {
-                    name: x.name,
-                    path: x.path,
-                    capturer: match x.capturer {
+                    name: o.name,
+                    path: o.path,
+                    capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
                         file::Capturer::Wlroots => app::Capturer::Wlroots,
                     },
@@ -36,10 +36,10 @@ pub fn load() -> Result<app::Config, toml::de::Error> {
                     .output
                     .ddcutil
                     .into_iter()
-                    .map(|x| app::Output::DdcUtil {
+                    .map(|o| app::Output::DdcUtil {
                         0: app::DdcUtilOutput {
-                            name: x.name,
-                            capturer: match x.capturer {
+                            name: o.name,
+                            capturer: match o.capturer {
                                 file::Capturer::None => app::Capturer::None,
                                 file::Capturer::Wlroots => app::Capturer::Wlroots,
                             },
