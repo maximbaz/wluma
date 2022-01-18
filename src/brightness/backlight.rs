@@ -7,11 +7,12 @@ use std::path::Path;
 
 pub struct Backlight {
     file: RefCell<File>,
+    min_brightness: u64,
     max_brightness: u64,
 }
 
 impl Backlight {
-    pub fn new(path: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(path: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -23,6 +24,7 @@ impl Backlight {
 
         Ok(Self {
             file: RefCell::new(file),
+            min_brightness,
             max_brightness,
         })
     }
@@ -34,7 +36,7 @@ impl super::Brightness for Backlight {
     }
 
     fn set(&self, value: u64) -> Result<u64, Box<dyn Error>> {
-        let value = value.max(1).min(self.max_brightness);
+        let value = value.max(self.min_brightness).min(self.max_brightness);
         write(&mut self.file.borrow_mut(), value as f64)?;
         Ok(value)
     }

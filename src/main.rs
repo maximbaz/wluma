@@ -24,6 +24,11 @@ fn main() {
 
     log::debug!("Using config: {:?}", config);
 
+    if config.output.is_empty() {
+        log::error!("No output devices configured, aborting");
+        std::process::exit(1);
+    }
+
     let als_txs = config
         .output
         .iter()
@@ -46,18 +51,21 @@ fn main() {
                 .name(thread_name.clone())
                 .spawn(move || {
                     let brightness = match output {
-                        config::Output::Backlight(cfg) => brightness::Backlight::new(&cfg.path)
-                            .map(|b| Box::new(b) as Box<dyn brightness::Brightness>),
-                        config::Output::DdcUtil(cfg) => brightness::DdcUtil::new(&cfg.name)
-                            .map(|b| Box::new(b) as Box<dyn brightness::Brightness>),
+                        config::Output::Backlight(cfg) => {
+                            brightness::Backlight::new(&cfg.path, cfg.min_brightness)
+                                .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
+                        }
+                        config::Output::DdcUtil(cfg) => {
+                            brightness::DdcUtil::new(&cfg.name, cfg.min_brightness)
+                                .map(|b| Box::new(b) as Box<dyn brightness::Brightness>)
+                        }
                     };
-
                     match brightness {
                         Ok(b) => {
                             brightness::Controller::new(b, user_tx, prediction_rx).run();
                         }
                         Err(err) => log::warn!(
-                            "Skipping output '{}' as it might be disconnected: {}",
+                            "Skipping '{}' as it might be disconnected: {}",
                             output_name,
                             err
                         ),

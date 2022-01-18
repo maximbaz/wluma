@@ -27,12 +27,14 @@ pub struct BacklightOutput {
     pub name: String,
     pub path: String,
     pub capturer: Capturer,
+    pub min_brightness: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct DdcUtilOutput {
     pub name: String,
     pub capturer: Capturer,
+    pub min_brightness: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -41,19 +43,8 @@ pub enum Output {
     DdcUtil(DdcUtilOutput),
 }
 
-#[derive(Debug, Default)]
-pub struct Keyboards {
-    pub backlight: HashMap<String, Keyboard>,
-}
-
-#[derive(Debug)]
-pub struct Keyboard {
-    pub path: String,
-}
-
 #[derive(Debug)]
 pub struct Config {
     pub als: Als,
-    pub keyboard: Option<Keyboards>,
     pub output: Vec<Output>,
 }
