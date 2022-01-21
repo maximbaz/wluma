@@ -51,7 +51,7 @@ impl Backlight {
 impl super::Brightness for Backlight {
     fn get(&mut self) -> Result<u64, Box<dyn Error>> {
         let mut buffer = [0u8; 1024];
-        return match (self.inotify.read_events(&mut buffer), self.current) {
+        match (self.inotify.read_events(&mut buffer), self.current) {
             (_, None) => {
                 let value = read(&mut self.file.borrow_mut())? as u64;
                 self.current = Some(value);
@@ -66,7 +66,7 @@ impl super::Brightness for Backlight {
             }
             (Err(error), Some(value)) if error.kind() == ErrorKind::WouldBlock => Ok(value),
             (_, Some(value)) => Ok(value),
-        };
+        }
     }
 
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
