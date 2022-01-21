@@ -31,6 +31,11 @@ run:
 clean:
 	rm -rf dist
 
+.PHONY: docs
+docs:
+	marked-man -i README.md -o "$(BIN).7"
+	gzip "$(BIN).7"
+
 .PHONY: install
 install:
 	install -Dm755 -t "$(BIN_DIR)/" "target/release/$(BIN)"
@@ -38,6 +43,7 @@ install:
 	install -Dm644 -t "$(LIB_DIR)/systemd/user" "$(BIN).service"
 	install -Dm644 -t "$(SHARE_DIR)/licenses/$(BIN)/" LICENSE
 	install -Dm644 -t "$(SHARE_DIR)/doc/$(BIN)/" README.md
+	install -Dm644 -t "$(SHARE_DIR)/man/man7" "$(BIN).7.gz"
 	install -Dm644 -t "$(SHARE_DIR)/$(BIN)/examples/" config.toml
 
 .PHONY: dist
