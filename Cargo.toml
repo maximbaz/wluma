@@ -1,7 +1,7 @@
 [package]
 name = "wluma"
-version = "4.0.0"
-authors = ["Maxim Baz"]
+version = "4.1.0"
+authors = ["Maxim Baz", "Cyril Levis"]
 edition = "2021"
 
 [dependencies]
