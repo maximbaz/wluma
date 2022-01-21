@@ -71,7 +71,11 @@ impl super::Brightness for Backlight {
         let value = value.max(self.min_brightness).min(self.max_brightness) as u64;
         self.current = Some(value);
         write(&mut self.file, value as f64)?;
-        self.inotify.read_events(&mut buffer)?;
+        let _ = match self.inotify.read_events(&mut buffer) {
+            Err(error) if error.kind() == ErrorKind::WouldBlock => Ok(value),
+            Err(error) => Err(error),
+            _ => Ok(value),
+        };
         Ok(value)
     }
 }
