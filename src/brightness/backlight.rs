@@ -16,23 +16,22 @@ pub struct Backlight {
 
 impl Backlight {
     pub fn new(path: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
+        let brightness_path = Path::new(path).join("brightness");
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(Path::new(path).join("brightness"))?;
+            .open(&brightness_path)?;
 
         let max_brightness = fs::read_to_string(Path::new(path).join("max_brightness"))?
             .trim()
             .parse()?;
 
-        let brightness_path = Path::new(path).join("brightness");
-
         let mut inotify = Inotify::init()?;
-        inotify.add_watch(brightness_path, WatchMask::MODIFY)?;
+        inotify.add_watch(&brightness_path, WatchMask::MODIFY)?;
 
         let brightness_hw_changed_path = Path::new(path).join("brightness_hw_changed");
         if Path::new(&brightness_hw_changed_path).exists() {
-            inotify.add_watch(brightness_hw_changed_path, WatchMask::MODIFY)?;
+            inotify.add_watch(&brightness_hw_changed_path, WatchMask::MODIFY)?;
         }
 
         Ok(Self {
