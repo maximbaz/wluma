@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 
 mod als;
 mod brightness;
@@ -8,6 +7,7 @@ mod config;
 mod device_file;
 mod frame;
 mod predictor;
+
 
 fn main() {
     let panic_hook = std::panic::take_hook();
@@ -28,7 +28,6 @@ fn main() {
 
     log::debug!("Using {:#?}", config);
 
-    let ddc_mutex = Arc::new(Mutex::new(0));
     let als_txs = config
         .output
         .iter()
@@ -50,8 +49,7 @@ fn main() {
                         .map(|b| Box::new(b) as Box<dyn brightness::Brightness + Send>)
                 }
                 config::Output::DdcUtil(cfg) => {
-                    let mutex = Arc::clone(&ddc_mutex);
-                    brightness::DdcUtil::new(&cfg.name, cfg.min_brightness, mutex)
+                    brightness::DdcUtil::new(&cfg.name, cfg.min_brightness)
                         .map(|b| Box::new(b) as Box<dyn brightness::Brightness + Send>)
                 }
             };

@@ -19,6 +19,7 @@ ddc-hi = "0.4"
 log = "0.4"
 env_logger = "0.9"
 inotify = "0.10"
+lazy_static = "1.4"
 
 [dev-dependencies]
 mockall = "0.10"
