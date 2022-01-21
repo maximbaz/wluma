@@ -32,7 +32,7 @@ impl DdcUtil {
 
 impl super::Brightness for DdcUtil {
     fn get(&mut self) -> Result<u64, Box<dyn Error>> {
-        *DDC_MUTEX
+        let _lock = DDC_MUTEX
             .lock()
             .expect("Unable to acquire exclusive access to DDC API");
         Ok(self
@@ -44,7 +44,7 @@ impl super::Brightness for DdcUtil {
     }
 
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
-        *DDC_MUTEX
+        let _lock = DDC_MUTEX
             .lock()
             .expect("Unable to acquire exclusive access to DDC API");
         let value = value.max(self.min_brightness).min(self.max_brightness);
