@@ -55,15 +55,15 @@ impl super::Brightness for Backlight {
         let mut buffer = [0u8; 1024];
         match (self.inotify.read_events(&mut buffer), self.current) {
             (_, None) => update(self),
-            (Ok(mut event), Some(cached)) => {
-                if event.next().is_some() {
+            (Ok(mut events), Some(cached)) => {
+                if events.next().is_some() {
                     update(self)
                 } else {
                     Ok(cached)
                 }
             }
-            (Err(error), Some(cached)) if error.kind() == ErrorKind::WouldBlock => Ok(cached),
-            (Err(error), _) => Err(error.into()),
+            (Err(err), Some(cached)) if err.kind() == ErrorKind::WouldBlock => Ok(cached),
+            (Err(err), _) => Err(err.into()),
         }
     }
 
@@ -76,8 +76,8 @@ impl super::Brightness for Backlight {
         // Consume file events to not trigger get() update
         let mut buffer = [0u8; 1024];
         match self.inotify.read_events(&mut buffer) {
-            Err(error) if error.kind() == ErrorKind::WouldBlock => Ok(value),
-            Err(error) => Err(error.into()),
+            Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(value),
+            Err(err) => Err(err.into()),
             _ => Ok(value),
         }
     }
