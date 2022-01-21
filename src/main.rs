@@ -8,7 +8,6 @@ mod device_file;
 mod frame;
 mod predictor;
 
-
 fn main() {
     let panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
