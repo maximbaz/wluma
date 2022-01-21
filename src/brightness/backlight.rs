@@ -1,6 +1,5 @@
 use crate::device_file::{read, write};
 use inotify::{Inotify, WatchMask};
-use std::cell::RefCell;
 use std::error::Error;
 use std::fs;
 use std::fs::{File, OpenOptions};
@@ -8,7 +7,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 pub struct Backlight {
-    file: RefCell<File>,
+    file: File,
     min_brightness: u64,
     max_brightness: u64,
     inotify: Inotify,
@@ -36,8 +35,6 @@ impl Backlight {
             inotify.add_watch(brightness_hw_changed_path, WatchMask::MODIFY)?;
         }
 
-        let file = RefCell::new(file);
-
         Ok(Self {
             file,
             min_brightness,
@@ -53,13 +50,13 @@ impl super::Brightness for Backlight {
         let mut buffer = [0u8; 1024];
         match (self.inotify.read_events(&mut buffer), self.current) {
             (_, None) => {
-                let value = read(&mut self.file.borrow_mut())? as u64;
+                let value = read(&mut self.file)? as u64;
                 self.current = Some(value);
                 Ok(value)
             }
             (Ok(mut event), Some(value)) => {
                 if event.next().is_some() {
-                    let value = read(&mut self.file.borrow_mut())? as u64;
+                    let value = read(&mut self.file)? as u64;
                     self.current = Some(value);
                 }
                 Ok(value)
@@ -73,7 +70,7 @@ impl super::Brightness for Backlight {
         let mut buffer = [0u8; 1024];
         let value = value.max(self.min_brightness).min(self.max_brightness) as u64;
         self.current = Some(value);
-        write(&mut self.file.borrow_mut(), value as f64)?;
+        write(&mut self.file, value as f64)?;
         self.inotify.read_events(&mut buffer)?;
         Ok(value)
     }
