@@ -1,7 +1,13 @@
 use ddc_hi::{Ddc, Display, FeatureCode};
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::error::Error;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref DDC_MUTEX: Mutex<()> = Mutex::new(());
+}
 
 const DDC_BRIGHTNESS_FEATURE: FeatureCode = 0x10;
 
@@ -26,6 +32,9 @@ impl DdcUtil {
 
 impl super::Brightness for DdcUtil {
     fn get(&mut self) -> Result<u64, Box<dyn Error>> {
+        let _lock = DDC_MUTEX
+            .lock()
+            .expect("Unable to acquire exclusive access to DDC API");
         Ok(self
             .display
             .borrow_mut()
@@ -35,6 +44,9 @@ impl super::Brightness for DdcUtil {
     }
 
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
+        let _lock = DDC_MUTEX
+            .lock()
+            .expect("Unable to acquire exclusive access to DDC API");
         let value = value.max(self.min_brightness).min(self.max_brightness);
         self.display
             .borrow_mut()
