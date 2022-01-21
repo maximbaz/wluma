@@ -1,0 +1,55 @@
+name: Bug Report
+description: File a bug report
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees:
+  - cyrinux
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us, what did you expect to happen?
+      placeholder: Tell us what you see!
+      value: "A bug happened!"
+    validations:
+      required: true
+  - type: dropdown
+    id: version
+    attributes:
+      label: Version
+      description: What version of our software are you running?
+      options:
+        - last release
+        - main branch
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output from the following command. This will be automatically formatted into code, so no need for backticks.
+      render: shell
+      value: RUST_LOG=debug wluma
+  - type: textarea
+    id: details
+    attributes:
+      label: Relevant softwares version
+      render: shell
+      description: Can you please run this and paste the result?  This will be automatically formatted into code, so no need for backticks.
+      value: lsb_release -a; uname -a; pgrep -l sway; pacman -Q | egrep "(wlroots|vulkan|sway|clang|rust)"; dpkg -l | egrep "(wlroots|vulkan|sway|clang|rust)"
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Can you share your actual config ?
+      description: the config is in ~/.config/wluma/config.toml
+      render: shell
+      value: cat ~/.config/wluma/config.toml
+    validations:
+      required: false
