@@ -1,0 +1,55 @@
+name: Bug Report
+description: File a bug report
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Thanks for your time and effort in making the project better!
+  - type: markdown
+    attributes:
+      value: Is your issue related to `wlroots`? Remember that you must change `capturer` to `none` in the config, if you are not using wlroots-based compositor (such as `sway`).
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Steps for reproducing the issue
+      description: Please be specific, so that we can reproduce the problem and fix it
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What is the buggy behavior?
+      description: What actually happened when you execute the repro steps described above?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What is the expected behavior?
+      description: What should have happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Please run the app in debug mode using the command below, reproduce the issue and copy-paste the output here
+      render: shell
+      value: RUST_LOG=debug wluma
+  - type: textarea
+    id: version
+    attributes:
+      label: Version
+      description: What version of the app are you running and how did you install it?
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Environment
+      render: shell
+      description: It would help to know your environment. Please run the command below and paste the output here. If you want to add something else that could help, please do so!
+      value: lsb_release -a; uname -a; pgrep -l sway; pacman -Q | egrep "(wlroots|vulkan|sway|clang|rust)"; dpkg -l | egrep "(wlroots|vulkan|sway|clang|rust)"
+    validations:
+      required: true
