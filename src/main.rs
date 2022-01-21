@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 mod als;
 mod brightness;
@@ -27,6 +28,7 @@ fn main() {
 
     log::debug!("Using {:#?}", config);
 
+    let ddc_mutex = Arc::new(Mutex::new(0));
     let als_txs = config
         .output
         .iter()
@@ -48,7 +50,8 @@ fn main() {
                         .map(|b| Box::new(b) as Box<dyn brightness::Brightness + Send>)
                 }
                 config::Output::DdcUtil(cfg) => {
-                    brightness::DdcUtil::new(&cfg.name, cfg.min_brightness)
+                    let mutex = Arc::clone(&ddc_mutex);
+                    brightness::DdcUtil::new(&cfg.name, cfg.min_brightness, mutex)
                         .map(|b| Box::new(b) as Box<dyn brightness::Brightness + Send>)
                 }
             };

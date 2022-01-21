@@ -2,6 +2,7 @@ use ddc_hi::{Ddc, Display, FeatureCode};
 use itertools::Itertools;
 use std::cell::RefCell;
 use std::error::Error;
+use std::sync::{Arc, Mutex};
 
 const DDC_BRIGHTNESS_FEATURE: FeatureCode = 0x10;
 
@@ -9,10 +10,15 @@ pub struct DdcUtil {
     display: RefCell<Display>,
     min_brightness: u64,
     max_brightness: u64,
+    mutex: Arc<Mutex<u64>>,
 }
 
 impl DdcUtil {
-    pub fn new(name: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
+    pub fn new(
+        name: &str,
+        min_brightness: u64,
+        mutex: Arc<Mutex<u64>>,
+    ) -> Result<Self, Box<dyn Error>> {
         let mut display = find_display_by_name(name).ok_or("Unable to find display")?;
         let max_brightness = get_max_brightness(&mut display)?;
 
@@ -20,12 +26,17 @@ impl DdcUtil {
             display: RefCell::new(display),
             min_brightness,
             max_brightness,
+            mutex,
         })
     }
 }
 
 impl super::Brightness for DdcUtil {
     fn get(&mut self) -> Result<u64, Box<dyn Error>> {
+        let _ = *self
+            .mutex
+            .lock()
+            .expect("Unable to acquire exclusive access to DDC API");
         Ok(self
             .display
             .borrow_mut()
@@ -35,6 +46,10 @@ impl super::Brightness for DdcUtil {
     }
 
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
+        let _ = *self
+            .mutex
+            .lock()
+            .expect("Unable to acquire exclusive access to DDC API");
         let value = value.max(self.min_brightness).min(self.max_brightness);
         self.display
             .borrow_mut()
