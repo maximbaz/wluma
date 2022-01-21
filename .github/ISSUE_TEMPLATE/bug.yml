@@ -1,55 +1,55 @@
 name: Bug Report
 description: File a bug report
 title: "[Bug]: "
-labels: ["bug", "triage"]
-assignees:
-  - cyrinux
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to fill out this bug report!
-  - type: textarea
-    id: what-happened
+        ### Thanks for your time and effort in making the project better!
+  - type: markdown
     attributes:
-      label: What happened?
-      description: Also tell us, what did you expect to happen?
-      placeholder: Tell us what you see!
-      value: "A bug happened!"
+      value: Is your issue related to `wlroots`? Remember that you must change `capturer` to `none` in the config, if you are not using wlroots-based compositor (such as `sway`).
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Steps for reproducing the issue
+      description: Please be specific, so that we can reproduce the problem and fix it
     validations:
       required: true
-  - type: dropdown
-    id: version
+  - type: textarea
+    id: actual
     attributes:
-      label: Version
-      description: What version of our software are you running?
-      options:
-        - last release
-        - main branch
+      label: What is the buggy behavior?
+      description: What actually happened when you execute the repro steps described above?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What is the expected behavior?
+      description: What should have happened instead?
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Relevant log output
-      description: Please copy and paste any relevant log output from the following command. This will be automatically formatted into code, so no need for backticks.
+      label: Logs
+      description: Please run the app in debug mode using the command below, reproduce the issue and copy-paste the output here
       render: shell
       value: RUST_LOG=debug wluma
   - type: textarea
-    id: details
+    id: version
     attributes:
-      label: Relevant softwares version
-      render: shell
-      description: Can you please run this and paste the result?  This will be automatically formatted into code, so no need for backticks.
-      value: lsb_release -a; uname -a; pgrep -l sway; pacman -Q | egrep "(wlroots|vulkan|sway|clang|rust)"; dpkg -l | egrep "(wlroots|vulkan|sway|clang|rust)"
+      label: Version
+      description: What version of the app are you running and how did you install it?
     validations:
       required: true
   - type: textarea
-    id: config
+    id: details
     attributes:
-      label: Can you share your actual config ?
-      description: the config is in ~/.config/wluma/config.toml
+      label: Environment
       render: shell
-      value: cat ~/.config/wluma/config.toml
+      description: It would help to know your environment. Please run the command below and paste the output here. If you want to add something else that could help, please do so!
+      value: lsb_release -a; uname -a; pgrep -l sway; pacman -Q | egrep "(wlroots|vulkan|sway|clang|rust)"; dpkg -l | egrep "(wlroots|vulkan|sway|clang|rust)"
     validations:
-      required: false
+      required: true
