@@ -2,7 +2,7 @@
 name = "wluma"
 version = "4.0.0"
 authors = ["Maxim Baz"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 wayland-client = "0.29.0"
