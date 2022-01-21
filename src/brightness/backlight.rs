@@ -46,36 +46,39 @@ impl Backlight {
 
 impl super::Brightness for Backlight {
     fn get(&mut self) -> Result<u64, Box<dyn Error>> {
+        let update = |this: &mut Self| {
+            let value = read(&mut this.file)? as u64;
+            this.current = Some(value);
+            Ok(value)
+        };
+
         let mut buffer = [0u8; 1024];
         match (self.inotify.read_events(&mut buffer), self.current) {
-            (_, None) => {
-                let value = read(&mut self.file)? as u64;
-                self.current = Some(value);
-                Ok(value)
-            }
-            (Ok(mut event), Some(value)) => {
+            (_, None) => update(self),
+            (Ok(mut event), Some(cached)) => {
                 if event.next().is_some() {
-                    let value = read(&mut self.file)? as u64;
-                    self.current = Some(value);
-                    return Ok(value);
+                    update(self)
+                } else {
+                    Ok(cached)
                 }
-                Ok(value)
             }
-            (Err(error), Some(value)) if error.kind() == ErrorKind::WouldBlock => Ok(value),
-            (_, Some(value)) => Ok(value),
+            (Err(error), Some(cached)) if error.kind() == ErrorKind::WouldBlock => Ok(cached),
+            (Err(error), _) => Err(error.into()),
         }
     }
 
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
-        let mut buffer = [0u8; 1024];
         let value = value.max(self.min_brightness).min(self.max_brightness) as u64;
-        self.current = Some(value);
+
         write(&mut self.file, value as f64)?;
-        let _ = match self.inotify.read_events(&mut buffer) {
+        self.current = Some(value);
+
+        // Consume file events to not trigger get() update
+        let mut buffer = [0u8; 1024];
+        match self.inotify.read_events(&mut buffer) {
             Err(error) if error.kind() == ErrorKind::WouldBlock => Ok(value),
-            Err(error) => Err(error),
+            Err(error) => Err(error.into()),
             _ => Ok(value),
-        };
-        Ok(value)
+        }
     }
 }
