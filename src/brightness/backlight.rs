@@ -57,6 +57,7 @@ impl super::Brightness for Backlight {
                 if event.next().is_some() {
                     let value = read(&mut self.file)? as u64;
                     self.current = Some(value);
+                    return Ok(value);
                 }
                 Ok(value)
             }
