@@ -25,7 +25,7 @@ impl DdcUtil {
 }
 
 impl super::Brightness for DdcUtil {
-    fn get(&self) -> Result<u64, Box<dyn Error>> {
+    fn get(&mut self) -> Result<u64, Box<dyn Error>> {
         Ok(self
             .display
             .borrow_mut()
@@ -34,7 +34,7 @@ impl super::Brightness for DdcUtil {
             .value() as u64)
     }
 
-    fn set(&self, value: u64) -> Result<u64, Box<dyn Error>> {
+    fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
         let value = value.max(self.min_brightness).min(self.max_brightness);
         self.display
             .borrow_mut()
