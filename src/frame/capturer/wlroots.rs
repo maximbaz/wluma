@@ -1,4 +1,4 @@
-use crate::frame::{object::Object, processor::Processor};
+use crate::frame::{object::Object, vulkan::Vulkan};
 use crate::predictor::Controller;
 use std::{cell::RefCell, rc::Rc, thread, time::Duration};
 use wayland_client::{
@@ -21,7 +21,7 @@ pub struct Capturer {
     event_queue: Rc<RefCell<EventQueue>>,
     globals: GlobalManager,
     dmabuf_manager: Main<ZwlrExportDmabufManagerV1>,
-    processor: Rc<dyn Processor>,
+    vulkan: Rc<Vulkan>,
     registry: Main<WlRegistry>,
     xdg_output_manager: Main<ZxdgOutputManagerV1>,
 }
@@ -65,8 +65,8 @@ impl super::Capturer for Capturer {
     }
 }
 
-impl Capturer {
-    pub fn new(processor: Box<dyn Processor>) -> Self {
+impl Default for Capturer {
+    fn default() -> Self {
         let display = Display::connect_to_env().unwrap();
         let mut event_queue = display.create_event_queue();
         let attached_display = display.attach(event_queue.token());
@@ -83,16 +83,20 @@ impl Capturer {
             .instantiate_exact::<ZxdgOutputManagerV1>(3)
             .expect("Unable to init xdg_output_manager");
 
+        let vulkan = Rc::new(Vulkan::new().expect("Unable to initialize Vulkan"));
+
         Self {
             event_queue: Rc::new(RefCell::new(event_queue)),
             globals,
             registry,
             dmabuf_manager,
-            processor: processor.into(),
+            vulkan,
             xdg_output_manager,
         }
     }
+}
 
+impl Capturer {
     fn capture_frame(
         self: Rc<Self>,
         controller: Rc<RefCell<Controller>>,
@@ -119,7 +123,7 @@ impl Capturer {
 
                 Event::Ready { .. } => {
                     let luma = self
-                        .processor
+                        .vulkan
                         .luma_percent(&frame)
                         .expect("Unable to compute luma percent");
 

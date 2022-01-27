@@ -14,7 +14,7 @@ const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GP
 const BUFFER_PIXELS: u64 = 500 * 4; // Pre-allocated buffer size, should be enough to fit FINAL_MIP_LEVEL
 const FENCES_TIMEOUT_NS: u64 = 1_000_000_000;
 
-pub struct Processor {
+pub struct Vulkan {
     _entry: Entry, // must keep reference to prevent early memory release
     instance: Instance,
     device: Device,
@@ -29,63 +29,7 @@ pub struct Processor {
     image_resolution: RefCell<Option<(u32, u32)>>,
 }
 
-impl super::Processor for Processor {
-    fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
-        assert_eq!(
-            1, frame.num_objects,
-            "Frames with multiple objects are not supported yet"
-        );
-
-        if self.image.borrow().is_none() {
-            self.init_image(frame)?;
-        }
-        assert_eq!(
-            (frame.width, frame.height),
-            self.image_resolution.borrow().unwrap(),
-            "Handling screen resolution change is not supported yet"
-        );
-
-        let image = self
-            .image
-            .borrow()
-            .ok_or("Unable to borrow the Vulkan image")?;
-
-        let (frame_image, frame_image_memory) = self.init_frame_image(frame)?;
-
-        self.begin_commands()?;
-
-        let (target_mip_level, mip_width, mip_height) =
-            self.generate_mipmaps(frame, &frame_image, &image);
-
-        self.copy_mipmap(&image, target_mip_level, mip_width, mip_height);
-
-        self.submit_commands()?;
-
-        let pixels = mip_width as usize * mip_height as usize;
-        let rgbas = unsafe {
-            let buffer_pointer = self.device.map_memory(
-                self.buffer_memory,
-                0,
-                vk::WHOLE_SIZE,
-                vk::MemoryMapFlags::empty(),
-            )?;
-            std::slice::from_raw_parts(buffer_pointer as *mut u8, pixels * 4)
-        };
-
-        let result = compute_perceived_lightness_percent(rgbas, true, pixels);
-
-        unsafe {
-            self.device.unmap_memory(self.buffer_memory);
-            self.device.reset_fences(&[self.fence])?;
-            self.device.destroy_image(frame_image, None);
-            self.device.free_memory(frame_image_memory, None);
-        }
-
-        Ok(result)
-    }
-}
-
-impl Processor {
+impl Vulkan {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let app_name = CString::new("wluma")?;
         let app_info = vk::ApplicationInfo::builder()
@@ -195,6 +139,60 @@ impl Processor {
             image_memory: RefCell::new(None),
             image_resolution: RefCell::new(None),
         })
+    }
+
+    pub fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
+        assert_eq!(
+            1, frame.num_objects,
+            "Frames with multiple objects are not supported yet"
+        );
+
+        if self.image.borrow().is_none() {
+            self.init_image(frame)?;
+        }
+        assert_eq!(
+            (frame.width, frame.height),
+            self.image_resolution.borrow().unwrap(),
+            "Handling screen resolution change is not supported yet"
+        );
+
+        let image = self
+            .image
+            .borrow()
+            .ok_or("Unable to borrow the Vulkan image")?;
+
+        let (frame_image, frame_image_memory) = self.init_frame_image(frame)?;
+
+        self.begin_commands()?;
+
+        let (target_mip_level, mip_width, mip_height) =
+            self.generate_mipmaps(frame, &frame_image, &image);
+
+        self.copy_mipmap(&image, target_mip_level, mip_width, mip_height);
+
+        self.submit_commands()?;
+
+        let pixels = mip_width as usize * mip_height as usize;
+        let rgbas = unsafe {
+            let buffer_pointer = self.device.map_memory(
+                self.buffer_memory,
+                0,
+                vk::WHOLE_SIZE,
+                vk::MemoryMapFlags::empty(),
+            )?;
+            std::slice::from_raw_parts(buffer_pointer as *mut u8, pixels * 4)
+        };
+
+        let result = compute_perceived_lightness_percent(rgbas, true, pixels);
+
+        unsafe {
+            self.device.unmap_memory(self.buffer_memory);
+            self.device.reset_fences(&[self.fence])?;
+            self.device.destroy_image(frame_image, None);
+            self.device.free_memory(frame_image_memory, None);
+        }
+
+        Ok(result)
     }
 
     fn init_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
@@ -525,7 +523,7 @@ impl Processor {
     }
 }
 
-impl Drop for Processor {
+impl Drop for Vulkan {
     fn drop(&mut self) {
         unsafe {
             self.device

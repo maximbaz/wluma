@@ -67,15 +67,11 @@ fn main() {
                     std::thread::Builder::new()
                         .name(thread_name.clone())
                         .spawn(move || {
-                            let frame_processor = Box::new(
-                                frame::processor::vulkan::Processor::new()
-                                    .expect("Unable to initialize Vulkan"),
-                            );
                             let frame_capturer: Box<dyn frame::capturer::Capturer> =
                                 match output_capturer {
-                                    config::Capturer::Wlroots => Box::new(
-                                        frame::capturer::wlroots::Capturer::new(frame_processor),
-                                    ),
+                                    config::Capturer::Wlroots => {
+                                        Box::new(frame::capturer::wlroots::Capturer::default())
+                                    }
                                     config::Capturer::None => {
                                         Box::new(frame::capturer::none::Capturer::default())
                                     }
