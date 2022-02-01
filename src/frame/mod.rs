@@ -9,6 +9,7 @@ pub fn compute_perceived_lightness_percent(rgbas: &[u8], has_alpha: bool, pixels
 
     let (rs, gs, bs) = rgbas
         .iter()
+        .take(channels * pixels)
         .chunks(channels)
         .into_iter()
         .map(|mut chunk| {
