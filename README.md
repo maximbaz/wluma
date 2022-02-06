@@ -20,6 +20,8 @@ The app has minimal impact on system resources and battery life even though it i
 
 ## Installation
 
+On Alpine Linux you can use [wluma](https://pkgs.alpinelinux.org/packages?name=wluma) package (from Alpine Edge; it will be available in stable branches since Alpine v3.16).
+
 On Arch Linux you can use [wluma](https://aur.archlinux.org/packages/wluma/) or [wluma-git](https://aur.archlinux.org/packages/wluma-git/) packages.
 
 On NixOS you can use [wluma](https://search.nixos.org/packages?channel=unstable&show=wluma&from=0&size=50&sort=relevance&type=packages&query=wluma) package.
