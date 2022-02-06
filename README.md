@@ -20,6 +20,10 @@ The app has minimal impact on system resources and battery life even though it i
 
 ## Installation
 
+<a href="https://repology.org/project/wluma/versions">
+  <img src="https://repology.org/badge/vertical-allrepos/wluma.svg" alt="Packaging status" align="right">
+</a>
+
 On Alpine Linux you can use [wluma](https://pkgs.alpinelinux.org/packages?name=wluma) package (from Alpine Edge; it will be available in stable branches since Alpine v3.16).
 
 On Arch Linux you can use [wluma](https://aur.archlinux.org/packages/wluma/) or [wluma-git](https://aur.archlinux.org/packages/wluma-git/) packages.
