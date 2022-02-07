@@ -1,5 +1,5 @@
 BIN := wluma
-VERSION := 4.1.1
+VERSION := 4.1.2
 
 PREFIX ?= /usr
 LIB_DIR = $(DESTDIR)$(PREFIX)/lib
@@ -49,7 +49,8 @@ install:
 .PHONY: dist
 dist: clean build
 	mkdir -p dist
-	tar -czvf "dist/$(BIN)-$(VERSION)-linux-x86_64.tar.gz" "target/release/$(BIN)" 90-$(BIN)-backlight.rules "$(BIN).service" LICENSE README.md config.toml Makefile
+	cp "target/release/$(BIN)" .
+	tar -czvf "dist/$(BIN)-$(VERSION)-linux-x86_64.tar.gz" "$(BIN)" "90-$(BIN)-backlight.rules" "$(BIN).service" LICENSE README.md config.toml Makefile
 	git archive -o "dist/$(BIN)-$(VERSION).tar.gz" --format tar.gz --prefix "$(BIN)-$(VERSION)/" "$(VERSION)"
 	for f in dist/*.tar.gz; do gpg --detach-sign --armor "$$f"; done
-	rm -f "dist/$(BIN)-$(VERSION).tar.gz"
+	rm -f "dist/$(BIN)-$(VERSION).tar.gz" "$(BIN)"
