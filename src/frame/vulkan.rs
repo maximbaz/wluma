@@ -44,7 +44,7 @@ impl Vulkan {
             vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
         ];
 
-        let entry = unsafe { Entry::load()? };
+        let entry = Entry::linked();
 
         let create_info = vk::InstanceCreateInfo::builder()
             .application_info(&app_info)

@@ -5,14 +5,14 @@ authors = ["Maxim Baz", "Cyril Levis"]
 edition = "2021"
 
 [dependencies]
-wayland-client = "0.29.0"
+wayland-client = { version = "0.29.0", features = ["dlopen"] }
 wayland-protocols = { version = "0.29.0", features = ["client", "unstable_protocols"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8"
 dirs = "3.0"
 toml = { git = "https://github.com/vgao1996/toml-rs", branch = "dotted-table-0.5.8" }
 chrono = "0.4"
-ash = "0.35"
+ash = { version = "0.35", features = ["linked"], default-features = false }
 itertools = "0.10"
 v4l = { version = "0.12", features = ["libv4l"], default-features = false }
 ddc-hi = "0.4"
