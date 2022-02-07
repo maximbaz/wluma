@@ -24,13 +24,13 @@ The app has minimal impact on system resources and battery life even though it i
   <img src="https://repology.org/badge/vertical-allrepos/wluma.svg" alt="Packaging status" align="right">
 </a>
 
-On Alpine Linux you can use [wluma](https://pkgs.alpinelinux.org/packages?name=wluma) package (from Alpine Edge; it will be available in stable branches since Alpine v3.16).
+Use one of the available packages and methods below:
 
-On Arch Linux you can use [wluma](https://aur.archlinux.org/packages/wluma/) or [wluma-git](https://aur.archlinux.org/packages/wluma-git/) packages.
-
-On NixOS you can use [wluma](https://search.nixos.org/packages?channel=unstable&show=wluma&from=0&size=50&sort=relevance&type=packages&query=wluma) package.
-
-Alternatively, download the [release artifact](https://github.com/maximbaz/wluma/releases) (it is linked against latest available `glibc` and might not work on your machine) or build the app yourself, and then install it via `sudo make install`.
+- Alpine Linux: [wluma](https://pkgs.alpinelinux.org/packages?name=wluma) (from Alpine Edge; it will be available in stable branches since Alpine v3.16)
+- Arch Linux: [wluma](https://aur.archlinux.org/packages/wluma/) or [wluma-git](https://aur.archlinux.org/packages/wluma-git/)
+- NixOS: [wluma](https://search.nixos.org/packages?channel=unstable&show=wluma&from=0&size=50&sort=relevance&type=packages&query=wluma)
+- Pre-compiled [Github release artifact](https://github.com/maximbaz/wluma/releases) (it is linked against Vulkan ICD loader, which you must install, and the latest available `glibc`, which might not work on your machine if your version is too old)
+- Build the app yourself using the instructions below and install it via `sudo make install`
 
 ## Build
 
