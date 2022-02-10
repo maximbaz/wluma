@@ -40,7 +40,7 @@ In order to access backlight devices, `wluma` must either run as `root`, or pref
 
 ## Configuration
 
-The `config.toml` in repository represents default config values. To change them, copy the file into `$XDG_CONFIG_HOME/wluma/config.toml` and adjust as desired.
+The `config.toml` in repository represents default config values. To change them, copy the file into `$XDG_CONFIG_HOME/wluma/config.toml` or `/etc/xdg/wluma/config.toml` (the former takes precedence over the latter) and adjust as desired.
 
 ### ALS
 

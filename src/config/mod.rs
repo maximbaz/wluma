@@ -14,6 +14,7 @@ pub fn load() -> Result<app::Config, Box<dyn Error>> {
 fn parse() -> Result<app::Config, toml::de::Error> {
     let file_config = dirs::config_dir()
         .and_then(|config_dir| fs::read_to_string(&config_dir.join("wluma/config.toml")).ok())
+        .or_else(|| fs::read_to_string("/etc/xdg/wluma/config.toml").ok())
         .unwrap_or_else(|| include_str!("../../config.toml").to_string());
 
     let parse_als_thresholds = |t: HashMap<String, String>| -> HashMap<u64, String> {
