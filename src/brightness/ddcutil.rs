@@ -67,15 +67,15 @@ fn find_display_by_name(name: &str) -> Option<Display> {
     let displays = ddc_hi::Display::enumerate()
         .into_iter()
         .filter_map(|mut display| {
-            display.update_capabilities().ok().map(|_| {
-                let empty = "".to_string();
-                let merged = format!(
-                    "{} {}",
-                    display.info.model_name.as_ref().unwrap_or(&empty),
-                    display.info.serial_number.as_ref().unwrap_or(&empty)
-                );
-                (merged, display)
-            })
+            let _ignored = display.update_capabilities();
+            let empty = "".to_string();
+            let merged = format!(
+                "{} {} {}",
+                display.info.id,
+                display.info.model_name.as_ref().unwrap_or(&empty),
+                display.info.serial_number.as_ref().unwrap_or(&empty)
+            );
+            Some((merged, display))
         })
         .collect_vec();
 
