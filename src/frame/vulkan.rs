@@ -142,11 +142,6 @@ impl Vulkan {
     }
 
     pub fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
-        assert_eq!(
-            1, frame.num_objects,
-            "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
-        );
-
         if self.image.borrow().is_none() {
             self.init_image(frame)?;
         }
@@ -239,11 +234,15 @@ impl Vulkan {
         &self,
         frame: &Object,
     ) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
+        log::trace!("format ({})", frame.format);
+        // let frame_image_drm_format_info = vk::ImageDrmFormatModifierExplicitCreateInfoEXT::builder().drm_format_modifier(frame.format);
+
         let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::builder()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
 
         let frame_image_create_info = vk::ImageCreateInfo::builder()
             .push_next(&mut frame_image_memory_info)
+            // .push_next(....)
             .image_type(vk::ImageType::TYPE_2D)
             .format(vk::Format::R8G8B8A8_UNORM)
             .extent(vk::Extent3D {

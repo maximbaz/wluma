@@ -110,9 +110,10 @@ impl Capturer {
                     width,
                     height,
                     num_objects,
+                    format,
                     ..
                 } => {
-                    frame.set_metadata(width, height, num_objects);
+                    frame.set_metadata(width, height, num_objects, format);
                 }
 
                 Event::Object {
