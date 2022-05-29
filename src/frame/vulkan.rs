@@ -144,7 +144,7 @@ impl Vulkan {
     pub fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
         assert_eq!(
             1, frame.num_objects,
-            "Frames with multiple objects are not supported yet"
+            "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
         );
 
         if self.image.borrow().is_none() {
