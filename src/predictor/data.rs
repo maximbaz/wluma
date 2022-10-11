@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::path::PathBuf;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct Data {
     pub output_name: String,
     pub entries: Vec<Entry>,
