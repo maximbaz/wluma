@@ -87,9 +87,9 @@ impl Controller {
             (_, Some(current)) if desired == current => (),
             (_, Some(current)) => {
                 let step = if desired > current {
-                    div_ceil(desired - current, TRANSITION_MAX_MS)
+                    div_ceil(desired - current, TRANSITION_MAX_MS).min(1)
                 } else {
-                    -div_ceil(current - desired, TRANSITION_MAX_MS)
+                    -div_ceil(current - desired, TRANSITION_MAX_MS).min(1)
                 };
                 self.target = Some(Target { desired, step });
             }
