@@ -87,9 +87,9 @@ impl Controller {
             (_, Some(current)) if desired == current => (),
             (_, Some(current)) => {
                 let step = if desired > current {
-                    div_ceil(desired - current, TRANSITION_MAX_MS).min(1)
+                    div_ceil(desired - current, TRANSITION_MAX_MS)
                 } else {
-                    -div_ceil(current - desired, TRANSITION_MAX_MS).min(1)
+                    -div_ceil(current - desired, TRANSITION_MAX_MS)
                 };
                 self.target = Some(Target { desired, step });
             }
@@ -240,24 +240,25 @@ mod tests {
     #[test]
     fn test_update_target_finds_minimal_step_that_reaches_target_within_transition_duration() {
         let (mut controller, _, _) = setup(MockBrightness::new());
-        controller.current = Some(10000);
 
         let test_cases = vec![
-            (10001, 1),
-            (10013, 1),
-            (10199, 1),
-            (10200, 1),
-            (10413, 3),
-            (11732, 9),
-            (9999, -1),
-            (9983, -1),
-            (9801, -1),
-            (9800, -1),
-            (9473, -3),
-            (8433, -8),
+            (0, 1, 1),
+            (10000, 10001, 1),
+            (10000, 10013, 1),
+            (10000, 10199, 1),
+            (10000, 10200, 1),
+            (10000, 10413, 3),
+            (10000, 11732, 9),
+            (10000, 9999, -1),
+            (10000, 9983, -1),
+            (10000, 9801, -1),
+            (10000, 9800, -1),
+            (10000, 9473, -3),
+            (10000, 8433, -8),
         ];
 
-        for (desired, expected_step) in test_cases {
+        for (current, desired, expected_step) in test_cases {
+            controller.current = Some(current);
             controller.update_target(desired);
             assert_eq!(Some(target(desired, expected_step)), controller.target);
         }
