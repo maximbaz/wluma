@@ -68,7 +68,7 @@ impl super::Brightness for Backlight {
     }
 
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
-        let value = value.max(self.min_brightness).min(self.max_brightness) as u64;
+        let value = value.clamp(self.min_brightness, self.max_brightness);
 
         write(&mut self.file, value as f64)?;
         self.current = Some(value);

@@ -70,10 +70,10 @@ fn main() {
                             let frame_capturer: Box<dyn frame::capturer::Capturer> =
                                 match output_capturer {
                                     config::Capturer::Wlroots => {
-                                        Box::new(frame::capturer::wlroots::Capturer::default())
+                                        Box::<frame::capturer::wlroots::Capturer>::default()
                                     }
                                     config::Capturer::None => {
-                                        Box::new(frame::capturer::none::Capturer::default())
+                                        Box::<frame::capturer::none::Capturer>::default()
                                     }
                                 };
 
@@ -122,7 +122,7 @@ fn main() {
                         .expect("Unable to start thread: als-webcam");
                     als::webcam::Als::new(webcam_rx, thresholds)
                 }),
-                config::Als::None => Box::new(als::none::Als::default()),
+                config::Als::None => Box::<als::none::Als>::default(),
             };
 
             als::controller::Controller::new(als, als_txs).run();
