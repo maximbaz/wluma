@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
-
+use std::path::PathBuf;
 mod app;
 mod file;
 pub use app::*;
@@ -12,9 +12,13 @@ pub fn load() -> Result<app::Config, Box<dyn Error>> {
 }
 
 fn parse() -> Result<app::Config, toml::de::Error> {
-    let file_config = dirs::config_dir()
-        .and_then(|config_dir| fs::read_to_string(config_dir.join("wluma/config.toml")).ok())
-        .unwrap_or_else(|| include_str!("../../config.toml").to_string());
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("wluma").unwrap();
+    let cfg_path = xdg_dirs
+        .find_config_file("config.toml")
+        .unwrap_or_else(|| PathBuf::from(include_str!("../../config.toml").to_string()));
+
+    let file_config =
+        fs::read_to_string(&cfg_path).expect("Should have been able to read the file");
 
     let parse_als_thresholds = |t: HashMap<String, String>| -> HashMap<u64, String> {
         t.into_iter()
