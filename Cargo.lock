@@ -1480,7 +1480,6 @@ dependencies = [
  "ash",
  "chrono",
  "ddc-hi",
- "dirs",
  "env_logger 0.9.1",
  "inotify",
  "itertools",

@@ -17,8 +17,7 @@ fn parse() -> Result<app::Config, toml::de::Error> {
         .find_config_file("config.toml")
         .unwrap_or_else(|| PathBuf::from(include_str!("../../config.toml").to_string()));
 
-    let file_config =
-        fs::read_to_string(&cfg_path).expect("Should have been able to read the file");
+    let file_config = fs::read_to_string(cfg_path).expect("Should be able to read config file");
 
     let parse_als_thresholds = |t: HashMap<String, String>| -> HashMap<u64, String> {
         t.into_iter()
