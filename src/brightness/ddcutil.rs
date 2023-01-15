@@ -47,7 +47,7 @@ impl super::Brightness for DdcUtil {
         let _lock = DDC_MUTEX
             .lock()
             .expect("Unable to acquire exclusive access to DDC API");
-        let value = value.max(self.min_brightness).min(self.max_brightness);
+        let value = value.clamp(self.min_brightness, self.max_brightness);
         self.display
             .borrow_mut()
             .handle
