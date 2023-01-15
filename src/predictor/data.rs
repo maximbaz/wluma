@@ -55,8 +55,7 @@ impl Data {
 
     fn path(output_name: &str) -> Result<PathBuf, Box<dyn Error>> {
         let filename = format!("{:}.yaml", output_name);
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("wluma").unwrap();
-        let datadir = xdg_dirs.create_data_directory("")?;
+        let datadir = xdg::BaseDirectories::with_prefix("wluma")?.create_data_directory("")?;
         Ok(datadir.join(filename))
     }
 }
