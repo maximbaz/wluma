@@ -11,9 +11,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 toml = { git = "https://github.com/HarveyHunt/toml", branch = "dotted-table-parsing-toml" }
 chrono = "0.4"
-ash = { version = "0.37.0", features = ["linked"], default-features = false }
+ash = { version = "0.37.2", features = ["linked"], default-features = false }
 itertools = "0.10"
-v4l = { version = "0.13.0", features = ["libv4l"], default-features = false }
+v4l = { version = "0.13.1", features = ["libv4l"], default-features = false }
 ddc-hi = "0.4"
 log = "0.4"
 env_logger = "0.9"
@@ -22,4 +22,4 @@ lazy_static = "1.4"
 xdg = "2.4.1"
 
 [dev-dependencies]
-mockall = "0.11.2"
+mockall = "0.11.4"
