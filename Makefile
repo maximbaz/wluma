@@ -51,6 +51,6 @@ dist: clean build
 	mkdir -p dist
 	cp "target/release/$(BIN)" .
 	tar -czvf "dist/$(BIN)-$(VERSION)-linux-x86_64.tar.gz" "$(BIN)" "90-$(BIN)-backlight.rules" "$(BIN).service" LICENSE README.md config.toml Makefile
-	git archive -o "dist/$(BIN)-$(VERSION).tar.gz" --format tar.gz --prefix "$(BIN)-$(VERSION)/" "$(VERSION)"
+	git -c tar.tar.gz.command="gzip -cn" archive -o "dist/$(BIN)-$(VERSION).tar.gz" --format tar.gz --prefix "$(BIN)-$(VERSION)/" "$(VERSION)"
 	for f in dist/*.tar.gz; do gpg --detach-sign --armor "$$f"; done
 	rm -f "dist/$(BIN)-$(VERSION).tar.gz" "$(BIN)"
