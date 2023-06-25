@@ -13,7 +13,7 @@ toml = { git = "https://github.com/HarveyHunt/toml", branch = "dotted-table-pars
 chrono = "0.4"
 ash = { version = "0.37.2", features = ["linked"], default-features = false }
 itertools = "0.10"
-v4l = { version = "0.13.1", features = ["libv4l"], default-features = false }
+v4l = { version = "0.14.0", features = ["libv4l"], default-features = false }
 ddc-hi = "0.4"
 log = "0.4"
 env_logger = "0.9"
