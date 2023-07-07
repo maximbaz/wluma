@@ -33,10 +33,11 @@ impl Als {
             .and_then(|dir| {
                 dir.filter_map(|e| e.ok())
                     .find(|e| {
-                        fs::read_to_string(e.path().join("name"))
-                            .unwrap_or_default()
-                            .trim()
-                            == "als"
+                        let sensor_type =
+                            fs::read_to_string(e.path().join("name")).unwrap_or_default();
+                        let sensor_type = sensor_type.trim();
+
+                        sensor_type == "acpi-als" || sensor_type == "als"
                     })
                     .and_then(|e| {
                         parse_illuminance(e.path())
@@ -82,8 +83,16 @@ impl super::Als for Als {
 fn parse_illuminance(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
     Ok(Illuminance {
         value: Mutex::new(File::open(path.join("in_illuminance_raw"))?),
-        scale: read(&mut File::open(path.join("in_illuminance_scale"))?)?,
-        offset: read(&mut File::open(path.join("in_illuminance_offset"))?)?,
+        scale: if let Ok(mut file) = File::open(path.join("in_illuminance_scale")) {
+            read(&mut file)?
+        } else {
+            1_f64
+        },
+        offset: if let Ok(mut file) = File::open(path.join("in_illuminance_offset")) {
+            read(&mut file)?
+        } else {
+            0_f64
+        },
     })
 }
 
