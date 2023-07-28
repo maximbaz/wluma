@@ -261,8 +261,8 @@ impl Vulkan {
 
         let frame_image = unsafe { self.device.create_image(&frame_image_create_info, None)? };
 
-        let frame_image_memory_req_info = vk::ImageMemoryRequirementsInfo2::builder()
-            .image(frame_image);
+        let frame_image_memory_req_info =
+            vk::ImageMemoryRequirementsInfo2::builder().image(frame_image);
 
         // Prepare the structures to get memory requirements into, then get the requirements
         let mut frame_image_mem_dedicated_req = vk::MemoryDedicatedRequirements::default();
@@ -270,13 +270,19 @@ impl Vulkan {
             .push_next(&mut frame_image_mem_dedicated_req)
             .build();
         unsafe {
-            self.device.get_image_memory_requirements2(&frame_image_memory_req_info, &mut frame_image_mem_req);
+            self.device.get_image_memory_requirements2(
+                &frame_image_memory_req_info,
+                &mut frame_image_mem_req,
+            );
         }
 
         // Bit i in memory_type_bits is set if the ith memory type in the
         // VkPhysicalDeviceMemoryProperties structure is supported for the image memory.
         // We just use the first type supported (from least significant bit's side)
-        let memory_type_index = frame_image_mem_req.memory_requirements.memory_type_bits.trailing_zeros();
+        let memory_type_index = frame_image_mem_req
+            .memory_requirements
+            .memory_type_bits
+            .trailing_zeros();
 
         // Construct the memory alloctation info according to the requirements
         // If the image needs dedicated memory, add MemoryDedicatedAllocateInfo to the info chain
@@ -284,8 +290,8 @@ impl Vulkan {
             .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
             .fd(frame.fds[0]);
 
-        let mut frame_image_memory_dedicated_info = vk::MemoryDedicatedAllocateInfo::builder()
-            .image(frame_image);
+        let mut frame_image_memory_dedicated_info =
+            vk::MemoryDedicatedAllocateInfo::builder().image(frame_image);
 
         let frame_image_allocate_info = {
             if frame_image_mem_dedicated_req.prefers_dedicated_allocation == vk::TRUE {
