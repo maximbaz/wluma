@@ -42,7 +42,7 @@ Then simply run `make build`.
 
 ## Permissions
 
-In order to access backlight devices, `wluma` must either run as `root`, or preferrably instead you should add your user to `video` group (and possibly reboot thereafter).
+In order to access backlight devices, `wluma` must either run as `root`, or preferrably instead you should add your user to `video` group in combination with installing the supplied `90-wluma-backlight.rules` udev rule (don't forget to reboot thereafter).
 
 ## Configuration
 
