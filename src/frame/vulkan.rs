@@ -261,15 +261,49 @@ impl Vulkan {
 
         let frame_image = unsafe { self.device.create_image(&frame_image_create_info, None)? };
 
+        let frame_image_memory_req_info =
+            vk::ImageMemoryRequirementsInfo2::builder().image(frame_image);
+
+        // Prepare the structures to get memory requirements into, then get the requirements
+        let mut frame_image_mem_dedicated_req = vk::MemoryDedicatedRequirements::default();
+        let mut frame_image_mem_req = vk::MemoryRequirements2::builder()
+            .push_next(&mut frame_image_mem_dedicated_req)
+            .build();
+        unsafe {
+            self.device.get_image_memory_requirements2(
+                &frame_image_memory_req_info,
+                &mut frame_image_mem_req,
+            );
+        }
+
+        // Bit i in memory_type_bits is set if the ith memory type in the
+        // VkPhysicalDeviceMemoryProperties structure is supported for the image memory.
+        // We just use the first type supported (from least significant bit's side)
+        let memory_type_index = frame_image_mem_req
+            .memory_requirements
+            .memory_type_bits
+            .trailing_zeros();
+
+        // Construct the memory alloctation info according to the requirements
+        // If the image needs dedicated memory, add MemoryDedicatedAllocateInfo to the info chain
         let mut frame_import_memory_info = vk::ImportMemoryFdInfoKHR::builder()
             .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
             .fd(frame.fds[0]);
 
-        let frame_image_allocate_info = vk::MemoryAllocateInfo::builder()
-            .push_next(&mut frame_import_memory_info)
-            .allocation_size(frame.sizes[0].into())
-            .memory_type_index(0);
+        let mut frame_image_memory_dedicated_info =
+            vk::MemoryDedicatedAllocateInfo::builder().image(frame_image);
 
+        let mut frame_image_allocate_info = vk::MemoryAllocateInfo::builder()
+            .push_next(&mut frame_import_memory_info)
+            .allocation_size(frame_image_mem_req.memory_requirements.size)
+            .memory_type_index(memory_type_index);
+
+        if frame_image_mem_dedicated_req.prefers_dedicated_allocation == vk::TRUE {
+            frame_image_allocate_info =
+                frame_image_allocate_info.push_next(&mut frame_image_memory_dedicated_info);
+        }
+
+        // Allocate the memory and bind it to the image
         let frame_image_memory = unsafe {
             self.device
                 .allocate_memory(&frame_image_allocate_info, None)?
