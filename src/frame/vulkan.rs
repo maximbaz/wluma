@@ -293,20 +293,15 @@ impl Vulkan {
         let mut frame_image_memory_dedicated_info =
             vk::MemoryDedicatedAllocateInfo::builder().image(frame_image);
 
-        let frame_image_allocate_info = {
-            if frame_image_mem_dedicated_req.prefers_dedicated_allocation == vk::TRUE {
-                vk::MemoryAllocateInfo::builder()
-                    .push_next(&mut frame_import_memory_info)
-                    .push_next(&mut frame_image_memory_dedicated_info)
-                    .allocation_size(frame_image_mem_req.memory_requirements.size)
-                    .memory_type_index(memory_type_index)
-            } else {
-                vk::MemoryAllocateInfo::builder()
-                    .push_next(&mut frame_import_memory_info)
-                    .allocation_size(frame_image_mem_req.memory_requirements.size)
-                    .memory_type_index(memory_type_index)
-            }
-        };
+        let mut frame_image_allocate_info = vk::MemoryAllocateInfo::builder()
+            .push_next(&mut frame_import_memory_info)
+            .allocation_size(frame_image_mem_req.memory_requirements.size)
+            .memory_type_index(memory_type_index);
+
+        if frame_image_mem_dedicated_req.prefers_dedicated_allocation == vk::TRUE {
+            frame_image_allocate_info =
+                frame_image_allocate_info.push_next(&mut frame_image_memory_dedicated_info);
+        }
 
         // Allocate the memory and bind it to the image
         let frame_image_memory = unsafe {
