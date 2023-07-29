@@ -44,6 +44,8 @@ Then simply run `make build`.
 
 In order to access backlight devices, `wluma` must either run as `root`, or preferrably instead you should add your user to `video` group in combination with installing the supplied `90-wluma-backlight.rules` udev rule (don't forget to reboot thereafter).
 
+Alternatively, the above steps are not required if your system uses `elogind` or `systemd-logind` as they provide a safe interface for unprivileged users to control device's brightness through `dbus`.
+
 ## Configuration
 
 The `config.toml` in repository represents default config values. To change them, copy the file into `$XDG_CONFIG_HOME/wluma/config.toml` and adjust as desired.
