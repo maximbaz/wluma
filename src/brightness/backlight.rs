@@ -5,6 +5,7 @@ use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 use std::path::Path;
+use dbus::{self, blocking::{BlockingSender, Connection}};
 
 pub struct Backlight {
     file: File,
@@ -12,10 +13,15 @@ pub struct Backlight {
     max_brightness: u64,
     inotify: Inotify,
     current: Option<u64>,
+    id: Option<String>,
+    class: Option<String>,
 }
 
 impl Backlight {
     pub fn new(path: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
+        let id = Path::new(path).file_name().map(|s| s.to_string_lossy().to_string());
+        let class = Path::new(path).parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy().to_string());
+
         let brightness_path = Path::new(path).join("brightness");
         let file = OpenOptions::new()
             .read(true)
@@ -40,6 +46,8 @@ impl Backlight {
             max_brightness,
             inotify,
             current: None,
+            id,
+            class
         })
     }
 }
@@ -70,7 +78,22 @@ impl super::Brightness for Backlight {
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
         let value = value.clamp(self.min_brightness, self.max_brightness);
 
-        write(&mut self.file, value as f64)?;
+        if write(&mut self.file, value as f64).is_err() {
+            if let (Some(class), Some(id)) = (&self.class, &self.id) {
+                let conn = Connection::new_system()?;
+                let msg = dbus::Message::new_method_call(
+                    "org.freedesktop.login1",
+                    "/org/freedesktop/login1/session/auto",
+                    "org.freedesktop.login1.Session",
+                    "SetBrightness",
+                )?
+                    .append2(class, id)
+                    .append1(value as u32);
+
+                conn.send_with_reply_and_block(msg, std::time::Duration::from_secs(1))?;
+            }
+        }
+
         self.current = Some(value);
 
         // Consume file events to not trigger get() update

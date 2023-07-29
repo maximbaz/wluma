@@ -103,7 +103,7 @@ impl Controller {
                 if target.reached(current) {
                     self.target = None;
                 } else {
-                    let new_value = (current as i64 + target.step).max(0) as u64;
+                    let new_value = current.saturating_add_signed(target.step);
                     match self.brightness.set(new_value) {
                         Ok(new_value) => self.current = Some(new_value),
                         Err(err) => log::error!(
