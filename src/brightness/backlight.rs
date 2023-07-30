@@ -15,6 +15,7 @@ pub struct Backlight {
     current: Option<u64>,
     dbus_conn: Option<Connection>,
     dbus_msg: Option<Message>,
+    has_write_permission: bool,
 }
 
 impl Backlight {
@@ -29,10 +30,12 @@ impl Backlight {
         ).ok().map(|m| m.append2("backlight", &id));
 
         let brightness_path = Path::new(path).join("brightness");
-        let file = OpenOptions::new()
+        let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(&brightness_path)?;
+        let curr = read(&mut file)?;
+        let has_write_permission = write(&mut file, curr).is_ok();
 
         let max_brightness = fs::read_to_string(Path::new(path).join("max_brightness"))?
             .trim()
@@ -54,6 +57,7 @@ impl Backlight {
             current: None,
             dbus_conn,
             dbus_msg,
+            has_write_permission,
         })
     }
 }
@@ -84,16 +88,14 @@ impl super::Brightness for Backlight {
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
         let value = value.clamp(self.min_brightness, self.max_brightness);
 
-        if write(&mut self.file, value as f64).is_err() {
-            if let (Some(conn), Some(msg)) = (&self.dbus_conn, &self.dbus_msg) {
-                let msg = msg
-                    .duplicate()?
-                    .append1(value as u32);
+        if self.has_write_permission {
+            write(&mut self.file, value as f64)?;
+        } else if let (Some(conn), Some(msg)) = (&self.dbus_conn, &self.dbus_msg) {
+            let msg = msg
+                .duplicate()?
+                .append1(value as u32);
 
-                conn.send(msg).unwrap();
-            } else {
-                Err(std::io::Error::from(ErrorKind::PermissionDenied))?
-            }
+            conn.send(msg).unwrap();
         } else {
             Err(std::io::Error::from(ErrorKind::PermissionDenied))?
         }
