@@ -84,16 +84,18 @@ impl super::Brightness for Backlight {
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
         let value = value.clamp(self.min_brightness, self.max_brightness);
 
-        if let (Some(conn), Some(msg)) = (&self.dbus_conn, &self.dbus_msg) {
-            let msg = msg
-                .duplicate()?
-                .append1(value as u32);
+        if write(&mut self.file, value as f64).is_err() {
+            if let (Some(conn), Some(msg)) = (&self.dbus_conn, &self.dbus_msg) {
+                let msg = msg
+                    .duplicate()?
+                    .append1(value as u32);
 
-            if conn.send(msg).is_err() {
-                write(&mut self.file, value as f64)?;
+                conn.send(msg).unwrap();
+            } else {
+                Err(std::io::Error::from(ErrorKind::PermissionDenied))?
             }
         } else {
-            write(&mut self.file, value as f64)?;
+            Err(std::io::Error::from(ErrorKind::PermissionDenied))?
         }
 
         self.current = Some(value);
