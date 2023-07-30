@@ -5,7 +5,9 @@ use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 use std::path::Path;
-use dbus::{self, blocking::Connection, Message, channel::Sender};
+use std::time::Duration;
+use dbus::{self, blocking::Connection, Message};
+use dbus::blocking::BlockingSender;
 
 pub struct Backlight {
     file: File,
@@ -95,7 +97,7 @@ impl super::Brightness for Backlight {
                 .duplicate()?
                 .append1(value as u32);
 
-            conn.send(msg).unwrap();
+            conn.send_with_reply_and_block(msg, Duration::from_millis(100))?;
         } else {
             Err(std::io::Error::from(ErrorKind::PermissionDenied))?
         }
