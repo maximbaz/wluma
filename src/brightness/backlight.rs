@@ -62,12 +62,14 @@ impl Backlight {
             .trim()
             .parse()?;
 
-        let mut inotify = Inotify::init()?;
-        inotify.add_watch(&brightness_path, WatchMask::MODIFY)?;
+        let inotify = Inotify::init()?;
+        inotify.watches().add(&brightness_path, WatchMask::MODIFY)?;
 
         let brightness_hw_changed_path = Path::new(path).join("brightness_hw_changed");
         if Path::new(&brightness_hw_changed_path).exists() {
-            inotify.add_watch(&brightness_hw_changed_path, WatchMask::MODIFY)?;
+            inotify
+                .watches()
+                .add(&brightness_hw_changed_path, WatchMask::MODIFY)?;
         }
 
         Ok(Self {

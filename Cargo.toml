@@ -5,21 +5,21 @@ authors = ["Maxim Baz", "Cyril Levis"]
 edition = "2021"
 
 [dependencies]
-wayland-client = { version = "0.29.5", features = ["dlopen"] }
-wayland-protocols = { version = "0.29.5", features = ["client", "unstable_protocols"] }
+wayland-client = { version = "0.29" }
+wayland-protocols = { version = "0.29", features = ["client", "unstable_protocols"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 toml = "0.7.6"
 chrono = "0.4"
-ash = { version = "0.37.2", features = ["linked"], default-features = false }
-itertools = "0.10"
+ash = { version = "0.37.3", features = ["linked"], default-features = false }
+itertools = "0.11"
 v4l = { version = "0.14.0", features = ["libv4l"], default-features = false }
 ddc-hi = "0.4"
 log = "0.4"
-env_logger = "0.9"
+env_logger = "0.10"
 inotify = "0.10"
 lazy_static = "1.4"
-xdg = "2.4.1"
+xdg = "2.5.2"
 dbus = "0.9.7"
 
 [dev-dependencies]
