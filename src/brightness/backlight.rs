@@ -1,4 +1,6 @@
 use crate::device_file::{read, write};
+use dbus::blocking::BlockingSender;
+use dbus::{self, blocking::Connection, Message};
 use inotify::{Inotify, WatchMask};
 use std::error::Error;
 use std::fs;
@@ -6,8 +8,11 @@ use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 use std::path::Path;
 use std::time::Duration;
-use dbus::{self, blocking::Connection, Message};
-use dbus::blocking::BlockingSender;
+
+struct Dbus {
+    connection: Connection,
+    message: Message,
+}
 
 pub struct Backlight {
     file: File,
@@ -15,29 +20,44 @@ pub struct Backlight {
     max_brightness: u64,
     inotify: Inotify,
     current: Option<u64>,
-    dbus_conn: Option<Connection>,
-    dbus_msg: Option<Message>,
+    dbus: Option<Dbus>,
     has_write_permission: bool,
 }
 
 impl Backlight {
     pub fn new(path: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
-        let id = Path::new(path).file_name().unwrap().to_string_lossy().to_string();
-        let dbus_conn = Connection::new_system().ok();
-        let dbus_msg = Message::new_method_call(
-            "org.freedesktop.login1",
-            "/org/freedesktop/login1/session/auto",
-            "org.freedesktop.login1.Session",
-            "SetBrightness",
-        ).ok().map(|m| m.append2("backlight", &id));
-
         let brightness_path = Path::new(path).join("brightness");
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(&brightness_path)?;
-        let curr = read(&mut file)?;
-        let has_write_permission = write(&mut file, curr).is_ok();
+        let current_brightness = read(&mut file)?;
+        let has_write_permission = write(&mut file, current_brightness).is_ok();
+
+        let dbus = if has_write_permission {
+            None
+        } else {
+            let id = Path::new(path)
+                .file_name()
+                .and_then(|x| x.to_str())
+                .ok_or("Unable to identify backlight ID")?;
+
+            let message = Message::new_method_call(
+                "org.freedesktop.login1",
+                "/org/freedesktop/login1/session/auto",
+                "org.freedesktop.login1.Session",
+                "SetBrightness",
+            )
+            .ok()
+            .map(|m| m.append2("backlight", id));
+
+            Connection::new_system().ok().and_then(|connection| {
+                message.map(|message| Dbus {
+                    connection,
+                    message,
+                })
+            })
+        };
 
         let max_brightness = fs::read_to_string(Path::new(path).join("max_brightness"))?
             .trim()
@@ -57,8 +77,7 @@ impl Backlight {
             max_brightness,
             inotify,
             current: None,
-            dbus_conn,
-            dbus_msg,
+            dbus,
             has_write_permission,
         })
     }
@@ -92,12 +111,11 @@ impl super::Brightness for Backlight {
 
         if self.has_write_permission {
             write(&mut self.file, value as f64)?;
-        } else if let (Some(conn), Some(msg)) = (&self.dbus_conn, &self.dbus_msg) {
-            let msg = msg
-                .duplicate()?
-                .append1(value as u32);
-
-            conn.send_with_reply_and_block(msg, Duration::from_millis(100))?;
+        } else if let Some(dbus) = &self.dbus {
+            dbus.connection.send_with_reply_and_block(
+                dbus.message.duplicate()?.append1(value as u32),
+                Duration::from_millis(100),
+            )?;
         } else {
             Err(std::io::Error::from(ErrorKind::PermissionDenied))?
         }
