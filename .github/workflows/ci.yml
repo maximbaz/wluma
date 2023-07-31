@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - run: sudo apt-get update
-      - run: sudo apt-get -y install v4l-utils libv4l-dev libudev-dev libvulkan-dev
+      - run: sudo apt-get -y install v4l-utils libv4l-dev libudev-dev libvulkan-dev libdbus-1-dev
       - run: make test
 
   lint:
@@ -21,5 +21,5 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - run: sudo apt-get update
-      - run: sudo apt-get -y install v4l-utils libv4l-dev libudev-dev libvulkan-dev
+      - run: sudo apt-get -y install v4l-utils libv4l-dev libudev-dev libvulkan-dev libdbus-1-dev
       - run: make lint
