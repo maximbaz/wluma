@@ -10,7 +10,7 @@ jobs:
     name: make test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - run: sudo apt-get update
       - run: sudo apt-get -y install v4l-utils libv4l-dev libudev-dev libvulkan-dev
       - run: make test
@@ -19,7 +19,7 @@ jobs:
     name: make lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - run: sudo apt-get update
       - run: sudo apt-get -y install v4l-utils libv4l-dev libudev-dev libvulkan-dev
       - run: make lint
