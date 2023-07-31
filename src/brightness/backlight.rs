@@ -1,5 +1,5 @@
 use crate::device_file::{read, write};
-use dbus::blocking::BlockingSender;
+use dbus::channel::Sender;
 use dbus::{self, blocking::Connection, Message};
 use inotify::{Inotify, WatchMask};
 use std::error::Error;
@@ -7,7 +7,6 @@ use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 use std::path::Path;
-use std::time::Duration;
 
 struct Dbus {
     connection: Connection,
@@ -112,10 +111,9 @@ impl super::Brightness for Backlight {
         if self.has_write_permission {
             write(&mut self.file, value as f64)?;
         } else if let Some(dbus) = &self.dbus {
-            dbus.connection.send_with_reply_and_block(
-                dbus.message.duplicate()?.append1(value as u32),
-                Duration::from_millis(100),
-            )?;
+            dbus.connection
+                .send(dbus.message.duplicate()?.append1(value as u32))
+                .map_err(|_| "Unable to send brightness change message via dbus")?;
         } else {
             Err(std::io::Error::from(ErrorKind::PermissionDenied))?
         }
