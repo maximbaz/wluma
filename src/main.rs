@@ -67,16 +67,6 @@ fn main() {
                     std::thread::Builder::new()
                         .name(thread_name.clone())
                         .spawn(move || {
-                            let frame_capturer: Box<dyn frame::capturer::Capturer> =
-                                match output_capturer {
-                                    config::Capturer::Wlroots => {
-                                        Box::<frame::capturer::wlroots::Capturer>::default()
-                                    }
-                                    config::Capturer::None => {
-                                        Box::<frame::capturer::none::Capturer>::default()
-                                    }
-                                };
-
                             let controller = predictor::Controller::new(
                                 prediction_tx,
                                 user_rx,
@@ -84,7 +74,21 @@ fn main() {
                                 true,
                                 &output_name,
                             );
-                            frame_capturer.run(&output_name, controller)
+
+                            let mut frame_capturer: Box<dyn frame::capturer::Capturer> =
+                                match output_capturer {
+                                    config::Capturer::Wlroots => {
+                                        Box::new(frame::capturer::wlroots::Capturer::new(
+                                            &output_name,
+                                            controller,
+                                        ))
+                                    }
+                                    config::Capturer::None => {
+                                        Box::new(frame::capturer::none::Capturer::new(controller))
+                                    }
+                                };
+
+                            frame_capturer.run();
                         })
                         .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
 
