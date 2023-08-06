@@ -36,13 +36,17 @@ Use one of the available packages and methods below:
 
 [![CI](https://github.com/maximbaz/wluma/actions/workflows/ci.yml/badge.svg)](https://github.com/maximbaz/wluma/actions/workflows/ci.yml)
 
-If you want to build the app yourself, make sure you use latest stable Rust, otherwise you might get compilation errors! Using `rustup` is perhaps the easiest. Ubuntu needs the following dependencies: `sudo apt-get -y install v4l-utils libv4l-dev libudev-dev libvulkan-dev`.
+If you want to build the app yourself, make sure you use latest stable Rust, otherwise you might get compilation errors! Using `rustup` is perhaps the easiest. Ubuntu needs the following dependencies: `sudo apt-get -y install v4l-utils libv4l-dev libudev-dev libvulkan-dev libdbus-1-dev`.
 
 Then simply run `make build`.
 
 ## Permissions
 
-In order to access backlight devices, `wluma` must either run as `root`, or preferrably instead you should add your user to `video` group in combination with installing the supplied `90-wluma-backlight.rules` udev rule (don't forget to reboot thereafter).
+In order to access backlight devices, `wluma` must either:
+
+- have direct driver access: install the supplied `90-wluma-backlight.rules` udev rule, add your user to the `video` group and reboot (fastest)
+- run on a system that uses `elogind` or `systemd-logind` (they provide a safe interface for unprivileged users to control device's brightness through `dbus`, no configuration necessary)
+- run as `root` (not recommended)
 
 ## Configuration
 
