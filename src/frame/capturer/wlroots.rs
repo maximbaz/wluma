@@ -9,6 +9,7 @@ use smithay_client_toolkit::{
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
 };
+use std::error::Error;
 use std::os::fd::AsRawFd;
 use std::{thread, time::Duration};
 use wayland_client::globals::GlobalListContents;
@@ -36,11 +37,11 @@ pub struct Capturer {
 
 impl Capturer {
     pub fn new(output_name: &str, controller: Controller) -> Self {
-        let connection = Connection::connect_to_env().unwrap();
+        let connection = Connection::connect_to_env().expect("Unable to connect to Wayland");
 
         Self {
             vulkan: Vulkan::new().expect("Unable to initialize Vulkan"),
-            output: find_output(&connection, output_name),
+            output: find_output(&connection, output_name).expect("Unable to find output"),
             connection,
             controller,
             pending_frame: None,
@@ -50,7 +51,8 @@ impl Capturer {
 
 impl super::Capturer for Capturer {
     fn run(&mut self) {
-        let (mut event_queue, dmabuf_manager) = init_dmabuf(&self.connection);
+        let (mut event_queue, dmabuf_manager) =
+            init_dmabuf(&self.connection).expect("Unable to init dmabuf_manager");
 
         loop {
             if self.pending_frame.is_none() {
@@ -65,15 +67,15 @@ impl super::Capturer for Capturer {
     }
 }
 
-fn find_output(connection: &Connection, output_name: &str) -> WlOutput {
-    let (globals, mut event_queue) = registry_queue_init(&connection).unwrap();
+fn find_output(connection: &Connection, output_name: &str) -> Result<WlOutput, Box<dyn Error>> {
+    let (globals, mut event_queue) = registry_queue_init(&connection)?;
 
     let mut list_outputs = ListOutputs {
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &event_queue.handle()),
     };
 
-    event_queue.roundtrip(&mut list_outputs).unwrap();
+    event_queue.roundtrip(&mut list_outputs)?;
 
     let mut outputs = list_outputs
         .output_state
@@ -99,22 +101,24 @@ fn find_output(connection: &Connection, output_name: &str) -> WlOutput {
 
     match outputs.len() {
         0 => panic!("Unable to find output that matches config '{output_name}'"),
-        1 => outputs.pop().unwrap(),
+        1 => Ok(outputs.pop().unwrap()),
         _ => panic!("More than one output matches config '{output_name}', this is not supported!"),
     }
 }
 
 fn init_dmabuf(
     connection: &Connection,
-) -> (
-    EventQueue<Capturer>,
-    zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1,
-) {
-    let (global_list, event_queue) = registry_queue_init::<Capturer>(connection).unwrap();
-    let dmabuf_manager: zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1 = global_list
-        .bind(&event_queue.handle(), 1..=1, ())
-        .expect("Unable to init export_dmabuf_manager");
-    (event_queue, dmabuf_manager)
+) -> Result<
+    (
+        EventQueue<Capturer>,
+        zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1,
+    ),
+    Box<dyn Error>,
+> {
+    let (global_list, event_queue) = registry_queue_init::<Capturer>(connection)?;
+    let dmabuf_manager: zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1 =
+        global_list.bind(&event_queue.handle(), 1..=1, ())?;
+    Ok((event_queue, dmabuf_manager))
 }
 
 impl Dispatch<zwlr_export_dmabuf_frame_v1::ZwlrExportDmabufFrameV1, ()> for Capturer {
@@ -126,6 +130,11 @@ impl Dispatch<zwlr_export_dmabuf_frame_v1::ZwlrExportDmabufFrameV1, ()> for Capt
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        let pending_frame = state
+            .pending_frame
+            .as_mut()
+            .expect("Unable to access pending frame");
+
         match event {
             zwlr_export_dmabuf_frame_v1::Event::Frame {
                 width,
@@ -133,27 +142,19 @@ impl Dispatch<zwlr_export_dmabuf_frame_v1::ZwlrExportDmabufFrameV1, ()> for Capt
                 num_objects,
                 ..
             } => {
-                state
-                    .pending_frame
-                    .as_mut()
-                    .expect("Unable to acquire lock on frame object")
-                    .set_metadata(width, height, num_objects);
+                pending_frame.set_metadata(width, height, num_objects);
             }
 
             zwlr_export_dmabuf_frame_v1::Event::Object {
                 index, fd, size, ..
             } => {
-                state
-                    .pending_frame
-                    .as_mut()
-                    .expect("Unable to acquire lock on frame object")
-                    .set_object(index, fd.as_raw_fd(), size);
+                pending_frame.set_object(index, fd.as_raw_fd(), size);
             }
 
             zwlr_export_dmabuf_frame_v1::Event::Ready { .. } => {
                 let luma = state
                     .vulkan
-                    .luma_percent(state.pending_frame.as_ref().unwrap())
+                    .luma_percent(pending_frame)
                     .expect("Unable to compute luma percent");
 
                 state.controller.adjust(luma);
