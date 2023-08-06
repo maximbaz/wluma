@@ -68,7 +68,7 @@ impl super::Capturer for Capturer {
 }
 
 fn find_output(connection: &Connection, output_name: &str) -> Result<WlOutput, Box<dyn Error>> {
-    let (globals, mut event_queue) = registry_queue_init(&connection)?;
+    let (globals, mut event_queue) = registry_queue_init(connection)?;
 
     let mut list_outputs = ListOutputs {
         registry_state: RegistryState::new(&globals),
@@ -83,7 +83,7 @@ fn find_output(connection: &Connection, output_name: &str) -> Result<WlOutput, B
         .filter(|o| {
             list_outputs
                 .output_state
-                .info(&o)
+                .info(o)
                 .and_then(|i| {
                     i.description.map(|d| {
                         d.contains(output_name)
