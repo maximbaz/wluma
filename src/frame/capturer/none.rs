@@ -1,4 +1,5 @@
 use crate::predictor::Controller;
+use std::error::Error;
 use std::{thread, time::Duration};
 
 pub struct Capturer {
@@ -6,8 +7,8 @@ pub struct Capturer {
 }
 
 impl Capturer {
-    pub fn new(controller: Controller) -> Self {
-        Self { controller }
+    pub fn new(controller: Controller) -> Result<Self, Box<dyn Error>> {
+        Ok(Self { controller })
     }
 }
 

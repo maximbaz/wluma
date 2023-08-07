@@ -32,26 +32,16 @@ fn main() {
     let als_txs = config
         .output
         .iter()
-        .filter_map(|output| match init_output(output) {
-            Ok((mut brightness_controller, mut frame_capturer, als_tx)) => {
-                spawn(format!("backlight-{}", output.name()), move || {
-                    brightness_controller.run()
-                });
-                spawn(format!("predictor-{}", output.name()), move || {
-                    frame_capturer.run();
-                });
-
-                Some(als_tx)
-            }
-            Err(err) => {
-                log::warn!(
-                    "Skipping '{}' as it might be disconnected: {}",
-                    output.name(),
-                    err
-                );
-
-                None
-            }
+        .filter_map(|output| {
+            init_output(output)
+                .map_err(|err| {
+                    log::warn!(
+                        "Skipping '{}' as it might be disconnected: {}",
+                        output.name(),
+                        err
+                    )
+                })
+                .ok()
         })
         .collect_vec();
 
@@ -93,15 +83,7 @@ where
         .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
 }
 
-type OutputHandler = (
-    brightness::Controller,
-    Box<dyn frame::capturer::Capturer>,
-    std::sync::mpsc::Sender<std::string::String>,
-);
-
-fn init_output(output: &Output) -> Result<OutputHandler, Box<dyn Error>> {
-    let output = output.clone();
-
+fn init_output(output: &Output) -> Result<mpsc::Sender<std::string::String>, Box<dyn Error>> {
     let (als_tx, als_rx) = mpsc::channel();
     let (user_tx, user_rx) = mpsc::channel();
     let (prediction_tx, prediction_rx) = mpsc::channel();
@@ -113,22 +95,48 @@ fn init_output(output: &Output) -> Result<OutputHandler, Box<dyn Error>> {
         config::Output::DdcUtil(cfg) => {
             brightness::DdcUtil::new(&cfg.name, cfg.min_brightness).map(|b| Box::new(b) as Box<_>)
         }
-    }?;
-
-    let brightness_controller = brightness::Controller::new(brightness, user_tx, prediction_rx);
-
-    let predictor_controller =
-        predictor::Controller::new(prediction_tx, user_rx, als_rx, true, output.name());
-
-    let frame_capturer: Box<dyn frame::capturer::Capturer> = match output.capturer() {
-        config::Capturer::Wlroots => {
-            frame::capturer::wlroots::Capturer::new(output.name(), predictor_controller)
-                .map(|b| Box::new(b) as Box<_>)?
-        }
-        config::Capturer::None => {
-            Box::new(frame::capturer::none::Capturer::new(predictor_controller))
-        }
     };
 
-    Ok((brightness_controller, frame_capturer, als_tx))
+    match brightness {
+        Ok(brightness) => {
+            spawn(format!("backlight-{}", output.name()), move || {
+                brightness::Controller::new(brightness, user_tx, prediction_rx).run()
+            });
+
+            let output = output.clone();
+            spawn(format!("predictor-{}", output.name()), move || {
+                let predictor_controller =
+                    predictor::Controller::new(prediction_tx, user_rx, als_rx, true, output.name());
+
+                let frame_capturer: Result<Box<dyn frame::capturer::Capturer>, _> = match output
+                    .capturer()
+                {
+                    config::Capturer::Wlroots => {
+                        frame::capturer::wlroots::Capturer::new(output.name(), predictor_controller)
+                            .map(|b| Box::new(b) as Box<_>)
+                    }
+                    config::Capturer::None => {
+                        frame::capturer::none::Capturer::new(predictor_controller)
+                            .map(|b| Box::new(b) as Box<_>)
+                    }
+                };
+
+                match frame_capturer {
+                    Ok(mut frame_capturer) => frame_capturer.run(),
+                    Err(err) => log::warn!(
+                        "Skipping '{}' as unable to initialize frame capturer, it might be disconnected: {}",
+                        output.name(),
+                        err
+                    ),
+                }
+            });
+        }
+        Err(err) => log::warn!(
+            "Skipping '{}' as unable to initialize brightness controller, it might be disconnected: {}",
+            output.name(),
+            err
+        ),
+    };
+
+    Ok(als_tx)
 }

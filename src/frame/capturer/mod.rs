@@ -1,6 +1,6 @@
 pub mod none;
 pub mod wlroots;
 
-pub trait Capturer: Send {
+pub trait Capturer {
     fn run(&mut self);
 }
