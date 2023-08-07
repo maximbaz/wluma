@@ -36,16 +36,16 @@ pub struct Capturer {
 }
 
 impl Capturer {
-    pub fn new(output_name: &str, controller: Controller) -> Self {
+    pub fn new(output_name: &str, controller: Controller) -> Result<Self, Box<dyn Error>> {
         let connection = Connection::connect_to_env().expect("Unable to connect to Wayland");
 
-        Self {
+        Ok(Self {
             vulkan: Vulkan::new().expect("Unable to initialize Vulkan"),
-            output: find_output(&connection, output_name).expect("Unable to find output"),
+            output: find_output(&connection, output_name)?,
             connection,
             controller,
             pending_frame: None,
-        }
+        })
     }
 }
 

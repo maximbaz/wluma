@@ -48,3 +48,19 @@ pub struct Config {
     pub als: Als,
     pub output: Vec<Output>,
 }
+
+impl Output {
+    pub fn name(&self) -> &str {
+        match self {
+            self::Output::Backlight(cfg) => &cfg.name,
+            self::Output::DdcUtil(cfg) => &cfg.name,
+        }
+    }
+
+    pub fn capturer(&self) -> &Capturer {
+        match self {
+            self::Output::Backlight(cfg) => &cfg.capturer,
+            self::Output::DdcUtil(cfg) => &cfg.capturer,
+        }
+    }
+}
