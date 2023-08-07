@@ -10,7 +10,6 @@ use smithay_client_toolkit::{
     registry_handlers,
 };
 use std::error::Error;
-use std::os::fd::AsRawFd;
 use std::{thread, time::Duration};
 use wayland_client::globals::GlobalListContents;
 use wayland_client::protocol::wl_output::WlOutput;
@@ -148,7 +147,7 @@ impl Dispatch<zwlr_export_dmabuf_frame_v1::ZwlrExportDmabufFrameV1, ()> for Capt
             zwlr_export_dmabuf_frame_v1::Event::Object {
                 index, fd, size, ..
             } => {
-                pending_frame.set_object(index, fd.as_raw_fd(), size);
+                pending_frame.set_object(index, fd, size);
             }
 
             zwlr_export_dmabuf_frame_v1::Event::Ready { .. } => {
