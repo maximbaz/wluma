@@ -99,7 +99,7 @@ fn find_output(connection: &Connection, output_name: &str) -> Result<WlOutput, B
         .collect_vec();
 
     match outputs.len() {
-        0 => panic!("Unable to find output that matches config '{output_name}'"),
+        0 => Err("Unable to find output that matches config '{output_name}'".into()),
         1 => Ok(outputs.pop().unwrap()),
         _ => panic!("More than one output matches config '{output_name}', this is not supported!"),
     }
