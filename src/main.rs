@@ -47,11 +47,26 @@ fn main() {
             };
 
             match brightness {
-                Ok(b) => {
+                Ok(_) => {
                     let thread_name = format!("backlight-{}", output.name());
+                    let output2 = output.clone();
                     std::thread::Builder::new()
                         .name(thread_name.clone())
                         .spawn(move || {
+                            let b = match output2 {
+                                config::Output::Backlight(cfg) => {
+                                    brightness::Backlight::new(&cfg.path, cfg.min_brightness).map(
+                                        |b| Box::new(b) as Box<dyn brightness::Brightness + Send>,
+                                    )
+                                }
+                                config::Output::DdcUtil(cfg) => {
+                                    brightness::DdcUtil::new(&cfg.name, cfg.min_brightness).map(
+                                        |b| Box::new(b) as Box<dyn brightness::Brightness + Send>,
+                                    )
+                                }
+                            }
+                            .unwrap();
+
                             brightness::Controller::new(b, user_tx, prediction_rx).run();
                         })
                         .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
