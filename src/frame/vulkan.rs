@@ -54,7 +54,7 @@ impl Vulkan {
 
         let physical_devices = unsafe { instance.enumerate_physical_devices()? };
         let physical_device = *physical_devices
-            .get(0)
+            .first()
             .ok_or("Unable to find a physical device")?;
 
         let queue_family_index = 0;
