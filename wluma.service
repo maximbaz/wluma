@@ -8,6 +8,7 @@ ExecStart=/usr/bin/wluma
 Restart=always
 EnvironmentFile=-%E/wluma/service.conf
 PrivateNetwork=true
+PrivateMounts=false
 
 [Install]
 WantedBy=graphical-session.target
