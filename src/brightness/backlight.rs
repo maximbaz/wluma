@@ -136,4 +136,3 @@ impl super::Brightness for Backlight {
         }
     }
 }
-
