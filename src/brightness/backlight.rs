@@ -4,7 +4,7 @@ use dbus::{self, blocking::Connection, Message};
 use inotify::{Inotify, WatchMask};
 use std::error::Error;
 use std::fs;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::ErrorKind;
 use std::path::Path;
 
@@ -26,16 +26,21 @@ pub struct Backlight {
 impl Backlight {
     pub fn new(path: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
         let brightness_path = Path::new(path).join("brightness");
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&brightness_path)?;
-        let current_brightness = read(&mut file)?;
-        let has_write_permission = write(&mut file, current_brightness).is_ok();
 
-        let dbus = if has_write_permission {
-            None
+        let current_brightness = fs::read(&brightness_path)?;
+
+        let has_write_permission = fs::write(&brightness_path, current_brightness).is_ok();
+
+        let (file, dbus) = if has_write_permission {
+            let file = File::options()
+                .read(true)
+                .write(true)
+                .open(&brightness_path)?;
+
+            (file, None)
         } else {
+            let file = File::open(&brightness_path)?;
+
             let id = Path::new(path)
                 .file_name()
                 .and_then(|x| x.to_str())
@@ -50,12 +55,14 @@ impl Backlight {
             .ok()
             .map(|m| m.append2("backlight", id));
 
-            Connection::new_system().ok().and_then(|connection| {
+            let connection = Connection::new_system().ok().and_then(|connection| {
                 message.map(|message| Dbus {
                     connection,
                     message,
                 })
-            })
+            });
+
+            (file, connection)
         };
 
         let max_brightness = fs::read_to_string(Path::new(path).join("max_brightness"))?
@@ -129,3 +136,4 @@ impl super::Brightness for Backlight {
         }
     }
 }
+
