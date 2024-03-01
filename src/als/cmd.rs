@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
@@ -36,11 +36,14 @@ impl Cmd {
     }
 
     fn output(&mut self) -> Result<u64, Box<dyn Error>> {
-        let stdout = Command::new("sh")
-            .arg("-c")
-            .arg(&self.command)
-            .output()?
-            .stdout;
+        let Output { status, stdout, .. } =
+            Command::new("sh").arg("-c").arg(&self.command).output()?;
+
+        if !status.success() {
+            let cmd = &self.command;
+            log::warn!("Command {cmd:?} failed: {status}");
+            Err(format!("Command {cmd:?} failed: {status}"))?;
+        }
 
         let lux = String::from_utf8(stdout)?.parse()?;
 
