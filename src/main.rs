@@ -122,6 +122,19 @@ fn main() {
                         .expect("Unable to start thread: als-webcam");
                     als::webcam::Als::new(webcam_rx, thresholds)
                 }),
+                config::Als::Cmd {
+                    command,
+                    thresholds,
+                } => Box::new({
+                    let (cmd_tx, cmd_rx) = mpsc::channel();
+                    std::thread::Builder::new()
+                        .name("als-cmd".to_string())
+                        .spawn(move || {
+                            als::cmd::Cmd::new(cmd_tx, command).run();
+                        })
+                        .expect("Unable to start thread: als-cmd");
+                    als::cmd::Als::new(cmd_rx, thresholds)
+                }),
                 config::Als::None => Box::<als::none::Als>::default(),
             };
 

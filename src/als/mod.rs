@@ -2,6 +2,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::error::Error;
 
+pub mod cmd;
 pub mod controller;
 pub mod iio;
 pub mod none;
