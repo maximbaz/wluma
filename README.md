@@ -14,6 +14,8 @@ With permission of [Lumen](https://github.com/anishathalye/lumen)'s author (the 
 
 Simply launch `wluma` and continue adjusting your screen brightness as you usually do - the app will learn your preferences.
 
+`wluma` will not do anything on the first launch! You have to adjust the brightness by hand a few times, in different environment and/or with different screen contents, that way `wluma` will learn your preferences and only then it will begin to automatically change your screen brightness for you.
+
 ## Performance
 
 The app has minimal impact on system resources and battery life even though it is able to monitor screen contents several times a second. This is achieved by using [export-dmabuf](https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/blob/master/unstable/wlr-export-dmabuf-unstable-v1.xml) Wayland protocol to get access to the screen contents and doing computations entirely on GPU using Vulkan API.
