@@ -68,6 +68,13 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                 video,
                 thresholds: parse_als_thresholds(thresholds),
             },
+            file::Als::Cmd {
+                command,
+                thresholds,
+            } => app::Als::Cmd {
+                command,
+                thresholds: parse_als_thresholds(thresholds),
+            },
             file::Als::Time { thresholds } => app::Als::Time {
                 thresholds: parse_als_thresholds(thresholds),
             },

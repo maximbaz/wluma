@@ -19,6 +19,10 @@ pub enum Als {
         video: usize,
         thresholds: HashMap<u64, String>,
     },
+    Cmd {
+        command: String,
+        thresholds: HashMap<u64, String>,
+    },
     None,
 }
 
