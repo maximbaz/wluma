@@ -12,7 +12,7 @@ pub use controller::Controller;
 pub use ddcutil::DdcUtil;
 
 #[cfg_attr(test, automock)]
-pub trait Brightness {
+pub trait Brightness: Send {
     fn get(&mut self) -> Result<u64, Box<dyn Error>>;
     fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>>;
 }

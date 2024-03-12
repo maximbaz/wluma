@@ -6,6 +6,7 @@ use std::default::Default;
 use std::error::Error;
 use std::ffi::CString;
 use std::ops::Drop;
+use std::os::fd::AsRawFd;
 
 const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 3, 0);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
@@ -288,7 +289,7 @@ impl Vulkan {
         // If the image needs dedicated memory, add MemoryDedicatedAllocateInfo to the info chain
         let mut frame_import_memory_info = vk::ImportMemoryFdInfoKHR::builder()
             .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
-            .fd(frame.fds[0]);
+            .fd(frame.fds[&0].as_raw_fd());
 
         let mut frame_image_memory_dedicated_info =
             vk::MemoryDedicatedAllocateInfo::builder().image(frame_image);
