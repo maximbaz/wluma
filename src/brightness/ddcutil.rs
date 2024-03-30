@@ -19,7 +19,9 @@ pub struct DdcUtil {
 
 impl DdcUtil {
     pub fn new(name: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
-        let mut display = find_display_by_name(name).ok_or("Unable to find display")?;
+        let mut display = find_display_by_name(name, true)
+            .or_else(|| find_display_by_name(name, false))
+            .ok_or("Unable to find display")?;
         let max_brightness = get_max_brightness(&mut display)?;
 
         Ok(Self {
@@ -63,11 +65,16 @@ fn get_max_brightness(display: &mut Display) -> Result<u64, Box<dyn Error>> {
         .maximum() as u64)
 }
 
-fn find_display_by_name(name: &str) -> Option<Display> {
+fn find_display_by_name(name: &str, check_caps: bool) -> Option<Display> {
     let displays = ddc_hi::Display::enumerate()
         .into_iter()
         .filter_map(|mut display| {
-            display.update_capabilities().ok().map(|_| {
+            let caps = if check_caps {
+                display.update_capabilities()
+            } else {
+                Ok(())
+            };
+            caps.ok().map(|_| {
                 let empty = "".to_string();
                 let merged = format!(
                     "{} {}",
@@ -80,7 +87,8 @@ fn find_display_by_name(name: &str) -> Option<Display> {
         .collect_vec();
 
     log::debug!(
-        "Discovered displays: {:?}",
+        "Discovered displays (check_caps={}): {:?}",
+        check_caps,
         displays.iter().map(|(name, _)| name).collect_vec()
     );
 
@@ -88,7 +96,12 @@ fn find_display_by_name(name: &str) -> Option<Display> {
         merged
             .contains(name)
             .then(|| {
-                log::debug!("Using display '{}' for config '{}'", merged, name);
+                log::debug!(
+                    "Using display '{}' for config '{}' (check_caps={})",
+                    merged,
+                    name,
+                    check_caps
+                );
             })
             .map(|_| display)
     })
