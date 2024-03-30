@@ -19,7 +19,7 @@ pub struct DdcUtil {
 
 impl DdcUtil {
     pub fn new(name: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
-        let mut display = find_display_by_name(name).ok_or("Unable to find display")?;
+        let mut display = find_display_by_name(name).or_else(|| {find_display_by_name_ignore_cap_check(name)}).ok_or("Unable to find display")?;
         let max_brightness = get_max_brightness(&mut display)?;
 
         Ok(Self {
@@ -89,6 +89,35 @@ fn find_display_by_name(name: &str) -> Option<Display> {
             .contains(name)
             .then(|| {
                 log::debug!("Using display '{}' for config '{}'", merged, name);
+            })
+            .map(|_| display)
+    })
+}
+
+fn find_display_by_name_ignore_cap_check(name: &str) -> Option<Display> {
+    let displays = ddc_hi::Display::enumerate()
+        .into_iter()
+        .filter_map(|display| {
+                let empty = "".to_string();
+                let merged = format!(
+                    "{} {}",
+                    display.info.model_name.as_ref().unwrap_or(&empty),
+                    display.info.serial_number.as_ref().unwrap_or(&empty)
+                );
+                Some((merged, display))
+        })
+        .collect_vec();
+
+    log::debug!(
+        "Discovered displays without capabilities check: {:?}",
+        displays.iter().map(|(name, _)| name).collect_vec()
+    );
+
+    displays.into_iter().find_map(|(merged, display)| {
+        merged
+            .contains(name)
+            .then(|| {
+                log::debug!("Using display '{}' for config '{} - ignored capabilities check'", merged, name);
             })
             .map(|_| display)
     })
