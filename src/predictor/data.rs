@@ -40,6 +40,7 @@ impl Data {
         Ok(OpenOptions::new()
             .create(true)
             .write(true)
+            .truncate(false)
             .read(true)
             .open(path)?)
     }
