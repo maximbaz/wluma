@@ -306,13 +306,7 @@ mod tests {
 
         let all_als = vec![ALS_DARK, ALS_DIM, ALS_BRIGHT];
         let all_combinations: HashSet<_> = iproduct!(-1i32..=1, -1i32..=1, -1i32..=1)
-            .map(|(i, j, k)| {
-                Entry::new(
-                    all_als[(1 + i) as usize].clone(),
-                    (20 + j) as u8,
-                    (30 + k) as u64,
-                )
-            })
+            .map(|(i, j, k)| Entry::new(all_als[(1 + i) as usize], (20 + j) as u8, (30 + k) as u64))
             .collect();
 
         let to_be_deleted: HashSet<_> = vec![
