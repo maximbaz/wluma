@@ -50,9 +50,17 @@ impl Vulkan {
             .application_info(&app_info)
             .enabled_extension_names(instance_extensions);
 
-        let instance = unsafe { entry.create_instance(&create_info, None)? };
+        let instance = unsafe {
+            entry
+                .create_instance(&create_info, None)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
 
-        let physical_devices = unsafe { instance.enumerate_physical_devices()? };
+        let physical_devices = unsafe {
+            instance
+                .enumerate_physical_devices()
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
         let physical_device = *physical_devices
             .first()
             .ok_or("Unable to find a physical device")?;
@@ -75,7 +83,11 @@ impl Vulkan {
             .enabled_extension_names(device_extensions)
             .enabled_features(&features);
 
-        let device = unsafe { instance.create_device(physical_device, &device_create_info, None)? };
+        let device = unsafe {
+            instance
+                .create_device(physical_device, &device_create_info, None)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
 
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
 
@@ -89,15 +101,23 @@ impl Vulkan {
             .command_buffer_count(1)
             .command_pool(command_pool)
             .level(vk::CommandBufferLevel::PRIMARY);
-        let command_buffers =
-            unsafe { device.allocate_command_buffers(&command_buffer_allocate_info)? };
+
+        let command_buffers = unsafe {
+            device
+                .allocate_command_buffers(&command_buffer_allocate_info)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
 
         let buffer_info = vk::BufferCreateInfo::builder()
             .size(BUFFER_PIXELS)
             .usage(vk::BufferUsageFlags::TRANSFER_DST)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
+        let buffer = unsafe {
+            device
+                .create_buffer(&buffer_info, None)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
 
         let buffer_memory_req = unsafe { device.get_buffer_memory_requirements(buffer) };
 
@@ -117,13 +137,24 @@ impl Vulkan {
             ..Default::default()
         };
 
-        let buffer_memory = unsafe { device.allocate_memory(&allocate_info, None)? };
+        let buffer_memory = unsafe {
+            device
+                .allocate_memory(&allocate_info, None)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
+
         unsafe {
-            device.bind_buffer_memory(buffer, buffer_memory, 0)?;
-        }
+            device
+                .bind_buffer_memory(buffer, buffer_memory, 0)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
 
         let fence_create_info = vk::FenceCreateInfo::builder();
-        let fence = unsafe { device.create_fence(&fence_create_info, None)? };
+        let fence = unsafe {
+            device
+                .create_fence(&fence_create_info, None)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
 
         Ok(Self {
             _entry: entry,
@@ -187,7 +218,9 @@ impl Vulkan {
 
         unsafe {
             self.device.unmap_memory(self.buffer_memory);
-            self.device.reset_fences(&[self.fence])?;
+            self.device
+                .reset_fences(&[self.fence])
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?;
             self.device.destroy_image(frame_image, None);
             self.device.free_memory(frame_image_memory, None);
         }
@@ -533,24 +566,28 @@ impl Vulkan {
 
         unsafe {
             self.device
-                .begin_command_buffer(self.command_buffers[0], &command_buffer_info)?;
-        }
+                .begin_command_buffer(self.command_buffers[0], &command_buffer_info)?
+        };
 
         Ok(())
     }
 
     fn submit_commands(&self) -> Result<(), Box<dyn Error>> {
         unsafe {
-            self.device.end_command_buffer(self.command_buffers[0])?;
-        }
+            self.device
+                .end_command_buffer(self.command_buffers[0])
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        };
 
         let submit_info = vk::SubmitInfo::builder().command_buffers(&self.command_buffers);
 
         unsafe {
             self.device
-                .queue_submit(self.queue, &[submit_info.build()], self.fence)?;
+                .queue_submit(self.queue, &[submit_info.build()], self.fence)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?;
             self.device
-                .wait_for_fences(&[self.fence], true, FENCES_TIMEOUT_NS)?;
+                .wait_for_fences(&[self.fence], true, FENCES_TIMEOUT_NS)
+                .map_err(|e| Box::new(e) as Box<dyn Error>)?;
         }
 
         Ok(())
