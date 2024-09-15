@@ -233,7 +233,7 @@ impl Vulkan {
                     vk::WHOLE_SIZE,
                     vk::MemoryMapFlags::empty(),
                 )
-                .map_err(anyhow::Error::msg)?; 
+                .map_err(anyhow::Error::msg)?;
             std::slice::from_raw_parts(buffer_pointer as *mut u8, pixels * 4)
         };
 
@@ -282,7 +282,7 @@ impl Vulkan {
         let image_allocate_info = vk::MemoryAllocateInfo {
             allocation_size: image_memory_req.size,
             memory_type_index: 0, // Ensure this is correctly set based on memory type requirements
-            ..Default::default()  
+            ..Default::default()
         };
 
         let image_memory = unsafe {
@@ -431,11 +431,11 @@ impl Vulkan {
                 base_mip_level,
                 level_count: mip_levels,
                 layer_count: 1,
-                ..Default::default() 
+                ..Default::default()
             },
             src_access_mask,
             dst_access_mask,
-            ..Default::default() 
+            ..Default::default()
         };
 
         unsafe {
@@ -625,7 +625,7 @@ impl Vulkan {
     fn begin_commands(&self) -> Result<(), Box<dyn Error>> {
         let command_buffer_info = vk::CommandBufferBeginInfo {
             flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
-            ..Default::default() 
+            ..Default::default()
         };
 
         unsafe {
