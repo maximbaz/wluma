@@ -4,8 +4,9 @@ use ash::{vk, Device, Entry, Instance};
 use std::cell::RefCell;
 use std::default::Default;
 use std::error::Error;
-use std::ffi::CString;
+use std::ffi::{CString, CStr};
 use std::ops::Drop;
+
 
 const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 4, 0);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
@@ -30,147 +31,159 @@ pub struct Vulkan {
 }
 
 impl Vulkan {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
-        let app_name = CString::new("wluma")?;
-        let app_info = vk::ApplicationInfo::builder()
-            .application_name(&app_name)
-            .application_version(WLUMA_VERSION)
-            .engine_name(&app_name)
-            .engine_version(WLUMA_VERSION)
-            .api_version(VULKAN_VERSION);
 
-        let instance_extensions = &[
-            vk::KhrExternalMemoryCapabilitiesFn::name().as_ptr(),
-            vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
-        ];
+pub fn new() -> Result<Self, Box<dyn Error>> {
+    let app_name = CString::new("wluma")?;
+    let app_info = vk::ApplicationInfo {
+        p_application_name: app_name.as_ptr(),
+        application_version: WLUMA_VERSION,
+        p_engine_name: app_name.as_ptr(),
+        engine_version: WLUMA_VERSION,
+        api_version: VULKAN_VERSION,
+        ..Default::default()
+    };
 
-        let entry = Entry::linked();
+let instance_extensions = &[
+    vk::KhrExternalMemoryCapabilitiesFn::name().as_ptr(),
+    CStr::from_bytes_with_nul(b"vkGetPhysicalDeviceProperties2\0").unwrap().as_ptr(),
+];
 
-        let create_info = vk::InstanceCreateInfo::builder()
-            .application_info(&app_info)
-            .enabled_extension_names(instance_extensions);
+    let entry = Entry::linked();
 
-        let instance = unsafe {
-            entry
-                .create_instance(&create_info, None)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
+    let create_info = vk::InstanceCreateInfo {
+        p_application_info: &app_info,
+        enabled_extension_count: instance_extensions.len() as u32,
+        pp_enabled_extension_names: instance_extensions.as_ptr(),
+        ..Default::default()
+    };
 
-        let physical_devices = unsafe {
-            instance
-                .enumerate_physical_devices()
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
-        let physical_device = *physical_devices
-            .first()
-            .ok_or("Unable to find a physical device")?;
+    let instance = unsafe {
+        entry.create_instance(&create_info, None)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+    };
 
-        let queue_family_index = 0;
-        let queue_info = &[vk::DeviceQueueCreateInfo::builder()
-            .queue_family_index(queue_family_index)
-            .queue_priorities(&[1.0])
-            .build()];
+    let physical_devices = unsafe {
+        instance.enumerate_physical_devices()
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+    };
+    let physical_device = *physical_devices
+        .first()
+        .ok_or("Unable to find a physical device")?;
 
-        let device_extensions = &[
-            vk::KhrExternalMemoryFn::name().as_ptr(),
-            vk::KhrExternalMemoryFdFn::name().as_ptr(),
-            vk::ExtExternalMemoryDmaBufFn::name().as_ptr(),
-        ];
-        let features = vk::PhysicalDeviceFeatures::builder();
+    let queue_family_index = 0;
+    let queue_info = [vk::DeviceQueueCreateInfo {
+        queue_family_index: queue_family_index,
+p_queue_priorities: [1.0f32].as_ptr(),
+        queue_count: 1,
+        ..Default::default()
+    }];
 
-        let device_create_info = vk::DeviceCreateInfo::builder()
-            .queue_create_infos(queue_info)
-            .enabled_extension_names(device_extensions)
-            .enabled_features(&features);
+    let device_extensions = &[
+        vk::KhrExternalMemoryFn::name().as_ptr(),
+        vk::KhrExternalMemoryFdFn::name().as_ptr(),
+        vk::ExtExternalMemoryDmaBufFn::name().as_ptr(),
+    ];
+    let features = vk::PhysicalDeviceFeatures::default();
 
-        let device = unsafe {
-            instance
-                .create_device(physical_device, &device_create_info, None)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
+    let device_create_info = vk::DeviceCreateInfo {
+        p_queue_create_infos: queue_info.as_ptr(),
+        queue_create_info_count: queue_info.len() as u32,
+        pp_enabled_extension_names: device_extensions.as_ptr(),
+        enabled_extension_count: device_extensions.len() as u32,
+        p_enabled_features: &features,
+        ..Default::default()
+    };
 
-        let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
+    let device = unsafe {
+        instance.create_device(physical_device, &device_create_info, None)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+    };
 
-        let pool_create_info = vk::CommandPoolCreateInfo::builder()
-            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-            .queue_family_index(queue_family_index);
+    let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
 
-        let command_pool = unsafe { device.create_command_pool(&pool_create_info, None)? };
+    let pool_create_info = vk::CommandPoolCreateInfo {
+        flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
+        queue_family_index: queue_family_index,
+        ..Default::default()
+    };
 
-        let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-            .command_buffer_count(1)
-            .command_pool(command_pool)
-            .level(vk::CommandBufferLevel::PRIMARY);
+    let command_pool = unsafe { device.create_command_pool(&pool_create_info, None)? };
 
-        let command_buffers = unsafe {
-            device
-                .allocate_command_buffers(&command_buffer_allocate_info)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
+    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo {
+        command_pool,
+        command_buffer_count: 1,
+        level: vk::CommandBufferLevel::PRIMARY,
+        ..Default::default()
+    };
 
-        let buffer_info = vk::BufferCreateInfo::builder()
-            .size(BUFFER_PIXELS)
-            .usage(vk::BufferUsageFlags::TRANSFER_DST)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+    let command_buffers = unsafe {
+        device.allocate_command_buffers(&command_buffer_allocate_info)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+    };
 
-        let buffer = unsafe {
-            device
-                .create_buffer(&buffer_info, None)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
+    let buffer_info = vk::BufferCreateInfo {
+        size: BUFFER_PIXELS,
+        usage: vk::BufferUsageFlags::TRANSFER_DST,
+        sharing_mode: vk::SharingMode::EXCLUSIVE,
+        ..Default::default()
+    };
 
-        let buffer_memory_req = unsafe { device.get_buffer_memory_requirements(buffer) };
+    let buffer = unsafe {
+        device.create_buffer(&buffer_info, None)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+    };
 
-        let device_memory_properties =
-            unsafe { instance.get_physical_device_memory_properties(physical_device) };
+    let buffer_memory_req = unsafe { device.get_buffer_memory_requirements(buffer) };
 
-        let memory_type_index = find_memory_type_index(
-            &buffer_memory_req,
-            &device_memory_properties,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )
-        .ok_or("Unable to find suitable memory type for the buffer")?;
+    let device_memory_properties =
+        unsafe { instance.get_physical_device_memory_properties(physical_device) };
 
-        let allocate_info = vk::MemoryAllocateInfo {
-            allocation_size: buffer_memory_req.size,
-            memory_type_index,
-            ..Default::default()
-        };
+    let memory_type_index = find_memory_type_index(
+        &buffer_memory_req,
+        &device_memory_properties,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    )
+    .ok_or("Unable to find suitable memory type for the buffer")?;
 
-        let buffer_memory = unsafe {
-            device
-                .allocate_memory(&allocate_info, None)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
+    let allocate_info = vk::MemoryAllocateInfo {
+        allocation_size: buffer_memory_req.size,
+        memory_type_index,
+        ..Default::default()
+    };
 
-        unsafe {
-            device
-                .bind_buffer_memory(buffer, buffer_memory, 0)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
+    let buffer_memory = unsafe {
+        device.allocate_memory(&allocate_info, None)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+    };
 
-        let fence_create_info = vk::FenceCreateInfo::builder();
-        let fence = unsafe {
-            device
-                .create_fence(&fence_create_info, None)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
+    unsafe {
+        device.bind_buffer_memory(buffer, buffer_memory, 0)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+    };
 
-        Ok(Self {
-            _entry: entry,
-            instance,
-            device,
-            buffer,
-            buffer_memory,
-            command_pool,
-            command_buffers,
-            queue,
-            fence,
-            image: RefCell::new(None),
-            image_memory: RefCell::new(None),
-            image_resolution: RefCell::new(None),
-        })
-    }
+    let fence_create_info = vk::FenceCreateInfo {
+        ..Default::default()
+    };
+    let fence = unsafe {
+        device.create_fence(&fence_create_info, None)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+    };
+
+    Ok(Self {
+        _entry: entry,
+        instance,
+        device,
+        buffer,
+        buffer_memory,
+        command_pool,
+        command_buffers,
+        queue,
+        fence,
+        image: RefCell::new(None),
+        image_memory: RefCell::new(None),
+        image_resolution: RefCell::new(None),
+    })
+}
 
     pub fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
         assert_eq!(
@@ -228,224 +241,254 @@ impl Vulkan {
         Ok(result)
     }
 
-    fn init_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
-        let (width, height, mip_levels) = image_dimensions(frame);
 
-        let image_create_info = vk::ImageCreateInfo::builder()
-            .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::B8G8R8A8_UNORM)
-            .extent(vk::Extent3D {
-                width,
-                height,
-                depth: 1,
-            })
-            .mip_levels(mip_levels)
-            .array_layers(1)
-            .tiling(vk::ImageTiling::OPTIMAL)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::TRANSFER_SRC)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+fn init_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
+    let (width, height, mip_levels) = image_dimensions(frame);
 
-        let image = unsafe { self.device.create_image(&image_create_info, None)? };
-        let image_memory_req = unsafe { self.device.get_image_memory_requirements(image) };
+    let image_create_info = vk::ImageCreateInfo {
+        image_type: vk::ImageType::TYPE_2D,
+        format: vk::Format::B8G8R8A8_UNORM,
+        extent: vk::Extent3D {
+            width,
+            height,
+            depth: 1,
+        },
+        mip_levels,
+        array_layers: 1,
+        tiling: vk::ImageTiling::OPTIMAL,
+        initial_layout: vk::ImageLayout::UNDEFINED,
+        samples: vk::SampleCountFlags::TYPE_1,
+        usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::TRANSFER_SRC,
+        sharing_mode: vk::SharingMode::EXCLUSIVE,
+        ..Default::default() // Default other fields
+    };
 
-        let image_allocate_info = vk::MemoryAllocateInfo::builder()
-            .allocation_size(image_memory_req.size)
-            .memory_type_index(0);
+    let image = unsafe { self.device.create_image(&image_create_info, None)? };
+    let image_memory_req = unsafe { self.device.get_image_memory_requirements(image) };
 
-        let image_memory = unsafe { self.device.allocate_memory(&image_allocate_info, None)? };
+    let image_allocate_info = vk::MemoryAllocateInfo {
+        allocation_size: image_memory_req.size,
+        memory_type_index: 0, // Ensure this is correctly set based on memory type requirements
+        ..Default::default() // Default other fields
+    };
 
-        unsafe {
-            self.device.bind_image_memory(image, image_memory, 0)?;
-        }
+    let image_memory = unsafe { self.device.allocate_memory(&image_allocate_info, None)? };
 
-        self.image.borrow_mut().replace(image);
-        self.image_memory.borrow_mut().replace(image_memory);
-        self.image_resolution
-            .borrow_mut()
-            .replace((frame.width, frame.height));
-        Ok(())
+    unsafe {
+        self.device.bind_image_memory(image, image_memory, 0)?;
     }
 
-    fn init_frame_image(
-        &self,
-        frame: &Object,
-    ) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
-        let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::builder()
-            .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+    self.image.borrow_mut().replace(image);
+    self.image_memory.borrow_mut().replace(image_memory);
+    self.image_resolution
+        .borrow_mut()
+        .replace((frame.width, frame.height));
+    Ok(())
+}
 
-        let frame_image_create_info = vk::ImageCreateInfo::builder()
-            .push_next(&mut frame_image_memory_info)
-            .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::R8G8B8A8_UNORM)
-            .extent(vk::Extent3D {
-                width: frame.width,
-                height: frame.height,
-                depth: 1,
-            })
-            .mip_levels(1)
-            .array_layers(1)
-            .tiling(vk::ImageTiling::OPTIMAL)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .usage(vk::ImageUsageFlags::TRANSFER_SRC)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let frame_image = unsafe { self.device.create_image(&frame_image_create_info, None)? };
 
-        let frame_image_memory_req_info =
-            vk::ImageMemoryRequirementsInfo2::builder().image(frame_image);
+fn init_frame_image(
+    &self,
+    frame: &Object,
+) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
+    // External memory info
+    let frame_image_memory_info = vk::ExternalMemoryImageCreateInfo {
+        handle_types: vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT,
+        ..Default::default()
+    };
 
-        // Prepare the structures to get memory requirements into, then get the requirements
-        let mut frame_image_mem_dedicated_req = vk::MemoryDedicatedRequirements::default();
-        let mut frame_image_mem_req = vk::MemoryRequirements2::builder()
-            .push_next(&mut frame_image_mem_dedicated_req)
-            .build();
-        unsafe {
-            self.device.get_image_memory_requirements2(
-                &frame_image_memory_req_info,
-                &mut frame_image_mem_req,
-            );
-        }
+    // Image create info
+    let frame_image_create_info = vk::ImageCreateInfo {
+        p_next: &frame_image_memory_info as *const _ as *const std::ffi::c_void,
+        image_type: vk::ImageType::TYPE_2D,
+        format: vk::Format::R8G8B8A8_UNORM,
+        extent: vk::Extent3D {
+            width: frame.width,
+            height: frame.height,
+            depth: 1,
+        },
+        mip_levels: 1,
+        array_layers: 1,
+        tiling: vk::ImageTiling::OPTIMAL,
+        initial_layout: vk::ImageLayout::UNDEFINED,
+        samples: vk::SampleCountFlags::TYPE_1,
+        usage: vk::ImageUsageFlags::TRANSFER_SRC,
+        sharing_mode: vk::SharingMode::EXCLUSIVE,
+        ..Default::default()
+    };
 
-        // Bit i in memory_type_bits is set if the ith memory type in the
-        // VkPhysicalDeviceMemoryProperties structure is supported for the image memory.
-        // We just use the first type supported (from least significant bit's side)
-        let memory_type_index = frame_image_mem_req
-            .memory_requirements
-            .memory_type_bits
-            .trailing_zeros();
+    let frame_image = unsafe { self.device.create_image(&frame_image_create_info, None)? };
 
-        // Construct the memory alloctation info according to the requirements
-        // If the image needs dedicated memory, add MemoryDedicatedAllocateInfo to the info chain
-        let mut frame_import_memory_info = vk::ImportMemoryFdInfoKHR::builder()
-            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
-            .fd(frame.fds[0]);
+    // Memory requirements info
+    let frame_image_memory_req_info = vk::ImageMemoryRequirementsInfo2 {
+        image: frame_image,
+        ..Default::default()
+    };
 
-        let mut frame_image_memory_dedicated_info =
-            vk::MemoryDedicatedAllocateInfo::builder().image(frame_image);
+    // Memory requirements
+    let mut frame_image_mem_dedicated_req = vk::MemoryDedicatedRequirements::default();
+    let mut frame_image_mem_req = vk::MemoryRequirements2 {
+        p_next: &mut frame_image_mem_dedicated_req as *mut _ as *mut std::ffi::c_void,
+        ..Default::default()
+    };
 
-        let mut frame_image_allocate_info = vk::MemoryAllocateInfo::builder()
-            .push_next(&mut frame_import_memory_info)
-            .allocation_size(frame_image_mem_req.memory_requirements.size)
-            .memory_type_index(memory_type_index);
-
-        if frame_image_mem_dedicated_req.prefers_dedicated_allocation == vk::TRUE {
-            frame_image_allocate_info =
-                frame_image_allocate_info.push_next(&mut frame_image_memory_dedicated_info);
-        }
-
-        // Allocate the memory and bind it to the image
-        let frame_image_memory = unsafe {
-            self.device
-                .allocate_memory(&frame_image_allocate_info, None)?
-        };
-
-        unsafe {
-            self.device
-                .bind_image_memory(frame_image, frame_image_memory, 0)?;
-        }
-
-        Ok((frame_image, frame_image_memory))
+    unsafe {
+        self.device.get_image_memory_requirements2(
+            &frame_image_memory_req_info,
+            &mut frame_image_mem_req,
+        );
     }
+
+    // Find suitable memory type index
+    let memory_type_index = frame_image_mem_req
+        .memory_requirements
+        .memory_type_bits
+        .trailing_zeros();
+
+    // Import memory info
+    let frame_import_memory_info = vk::ImportMemoryFdInfoKHR {
+        handle_type: vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT,
+        fd: frame.fds[0],
+        ..Default::default()
+    };
+
+    // Dedicated allocation info
+    let frame_image_memory_dedicated_info = vk::MemoryDedicatedAllocateInfo {
+        image: frame_image,
+        ..Default::default()
+    };
+
+    // Memory allocate info
+    let mut frame_image_allocate_info = vk::MemoryAllocateInfo {
+        p_next: &frame_import_memory_info as *const _ as *const std::ffi::c_void,
+        allocation_size: frame_image_mem_req.memory_requirements.size,
+        memory_type_index,
+        ..Default::default()
+    };
+
+    if frame_image_mem_dedicated_req.prefers_dedicated_allocation == vk::TRUE {
+        frame_image_allocate_info.p_next = &frame_image_memory_dedicated_info as *const _ as *const std::ffi::c_void;
+    }
+
+
+// Allocate memory and bind it to the image
+let frame_image_memory = unsafe {
+    self.device
+        .allocate_memory(&frame_image_allocate_info, None)
+        .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?
+};
+
+unsafe {
+    self.device
+        .bind_image_memory(frame_image, frame_image_memory, 0)
+        .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?
+};
+
+
+    Ok((frame_image, frame_image_memory))
+}
 
     #[allow(clippy::too_many_arguments)]
-    fn add_barrier(
-        &self,
-        image: &vk::Image,
-        base_mip_level: u32,
-        mip_levels: u32,
-        old_layout: vk::ImageLayout,
-        new_layout: vk::ImageLayout,
-        src_access_mask: vk::AccessFlags,
-        dst_access_mask: vk::AccessFlags,
-        src_stage_mask: vk::PipelineStageFlags,
-    ) {
-        let image_barrier = vk::ImageMemoryBarrier::builder()
-            .old_layout(old_layout)
-            .new_layout(new_layout)
-            .image(*image)
-            .subresource_range(
-                vk::ImageSubresourceRange::builder()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .base_mip_level(base_mip_level)
-                    .level_count(mip_levels)
-                    .layer_count(1)
-                    .build(),
-            )
-            .src_access_mask(src_access_mask)
-            .dst_access_mask(dst_access_mask);
 
-        unsafe {
-            self.device.cmd_pipeline_barrier(
-                self.command_buffers[0],
-                src_stage_mask,
-                vk::PipelineStageFlags::TRANSFER,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[image_barrier.build()],
-            );
-        }
+fn add_barrier(
+    &self,
+    image: &vk::Image,
+    base_mip_level: u32,
+    mip_levels: u32,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+    src_access_mask: vk::AccessFlags,
+    dst_access_mask: vk::AccessFlags,
+    src_stage_mask: vk::PipelineStageFlags,
+) {
+    let image_barrier = vk::ImageMemoryBarrier {
+        old_layout,
+        new_layout,
+        image: *image,
+        subresource_range: vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level,
+            level_count: mip_levels,
+            layer_count: 1,
+            ..Default::default() // Ensure that remaining fields are set to default
+        },
+        src_access_mask,
+        dst_access_mask,
+        ..Default::default() // Ensure that remaining fields are set to default
+    };
+
+    unsafe {
+        self.device.cmd_pipeline_barrier(
+            self.command_buffers[0],
+            src_stage_mask,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::DependencyFlags::empty(),
+            &[],
+            &[],
+            &[image_barrier],
+        );
     }
+}
+
 
     #[allow(clippy::too_many_arguments)]
-    fn blit(
-        &self,
-        src_image: &vk::Image,
-        src_width: u32,
-        src_height: u32,
-        src_mip_level: u32,
-        dst_image: &vk::Image,
-        dst_width: u32,
-        dst_height: u32,
-        dst_mip_level: u32,
-    ) {
-        let blit_info = vk::ImageBlit::builder()
-            .src_offsets([
-                vk::Offset3D { x: 0, y: 0, z: 0 },
-                vk::Offset3D {
-                    x: src_width as i32,
-                    y: src_height as i32,
-                    z: 1,
-                },
-            ])
-            .src_subresource(
-                vk::ImageSubresourceLayers::builder()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .mip_level(src_mip_level)
-                    .layer_count(1)
-                    .build(),
-            )
-            .dst_offsets([
-                vk::Offset3D { x: 0, y: 0, z: 0 },
-                vk::Offset3D {
-                    x: dst_width as i32,
-                    y: dst_height as i32,
-                    z: 1,
-                },
-            ])
-            .dst_subresource(
-                vk::ImageSubresourceLayers::builder()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .mip_level(dst_mip_level)
-                    .layer_count(1)
-                    .build(),
-            );
 
-        unsafe {
-            self.device.cmd_blit_image(
-                self.command_buffers[0],
-                *src_image,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                *dst_image,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[blit_info.build()],
-                vk::Filter::LINEAR,
-            );
-        }
+fn blit(
+    &self,
+    src_image: &vk::Image,
+    src_width: u32,
+    src_height: u32,
+    src_mip_level: u32,
+    dst_image: &vk::Image,
+    dst_width: u32,
+    dst_height: u32,
+    dst_mip_level: u32,
+) {
+    // Creating ImageBlit struct using default values and direct field assignment
+    let blit_info = vk::ImageBlit {
+        src_offsets: [
+            vk::Offset3D { x: 0, y: 0, z: 0 },
+            vk::Offset3D {
+                x: src_width as i32,
+                y: src_height as i32,
+                z: 1,
+            },
+        ],
+        src_subresource: vk::ImageSubresourceLayers {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            mip_level: src_mip_level,
+            base_array_layer: 0,
+            layer_count: 1,
+        },
+        dst_offsets: [
+            vk::Offset3D { x: 0, y: 0, z: 0 },
+            vk::Offset3D {
+                x: dst_width as i32,
+                y: dst_height as i32,
+                z: 1,
+            },
+        ],
+        dst_subresource: vk::ImageSubresourceLayers {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            mip_level: dst_mip_level,
+            base_array_layer: 0,
+            layer_count: 1,
+        },
+    };
+
+    unsafe {
+        self.device.cmd_blit_image(
+            self.command_buffers[0],
+            *src_image,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            *dst_image,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            &[blit_info],
+            vk::Filter::LINEAR,
+        );
     }
+}
 
     fn generate_mipmaps(
         &self,
@@ -522,76 +565,94 @@ impl Vulkan {
         (target_mip_level, mip_width, mip_height)
     }
 
-    fn copy_mipmap(&self, image: &vk::Image, mip_level: u32, width: u32, height: u32) {
-        self.add_barrier(
-            image,
+
+fn copy_mipmap(&self, image: &vk::Image, mip_level: u32, width: u32, height: u32) {
+    self.add_barrier(
+        image,
+        mip_level,
+        1,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+        vk::AccessFlags::TRANSFER_WRITE,
+        vk::AccessFlags::TRANSFER_READ,
+        vk::PipelineStageFlags::TRANSFER,
+    );
+
+    let buffer_image_copy = vk::BufferImageCopy {
+        image_subresource: vk::ImageSubresourceLayers {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
             mip_level,
-            1,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            base_array_layer: 0, // Set this as needed
+            layer_count: 1,
+        },
+        image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+        image_extent: vk::Extent3D {
+            width,
+            height,
+            depth: 1,
+        },
+        ..Default::default() // Initialize any remaining fields to default values
+    };
+
+    unsafe {
+        self.device.cmd_copy_image_to_buffer(
+            self.command_buffers[0],
+            *image,
             vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::AccessFlags::TRANSFER_READ,
-            vk::PipelineStageFlags::TRANSFER,
+            self.buffer,
+            &[buffer_image_copy],
         );
+    }
+}
 
-        let buffer_image_copy = vk::BufferImageCopy::builder()
-            .image_subresource(
-                vk::ImageSubresourceLayers::builder()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .mip_level(mip_level)
-                    .layer_count(1)
-                    .build(),
-            )
-            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
-            .image_extent(vk::Extent3D {
-                width,
-                height,
-                depth: 1,
-            });
 
-        unsafe {
-            self.device.cmd_copy_image_to_buffer(
-                self.command_buffers[0],
-                *image,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                self.buffer,
-                &[buffer_image_copy.build()],
-            );
-        }
+fn begin_commands(&self) -> Result<(), Box<dyn Error>> {
+    let command_buffer_info = vk::CommandBufferBeginInfo {
+        flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+        ..Default::default() // Ensure all other fields are initialized with default values
+    };
+
+    unsafe {
+        self.device
+            .begin_command_buffer(self.command_buffers[0], &command_buffer_info)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?; // Handle the error correctly
     }
 
-    fn begin_commands(&self) -> Result<(), Box<dyn Error>> {
-        let command_buffer_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+    Ok(())
+}
 
-        unsafe {
-            self.device
-                .begin_command_buffer(self.command_buffers[0], &command_buffer_info)?
-        };
 
-        Ok(())
+
+fn submit_commands(&self) -> Result<(), Box<dyn Error>> {
+    unsafe {
+        // End the command buffer
+        self.device
+            .end_command_buffer(self.command_buffers[0])
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?;
+    };
+
+    // Updated submit_info without builder()
+    let submit_info = vk::SubmitInfo {
+        command_buffer_count: self.command_buffers.len() as u32,
+        p_command_buffers: self.command_buffers.as_ptr(),
+        ..Default::default()
+    };
+
+    unsafe {
+        // Submit the command buffers to the queue
+        self.device
+            .queue_submit(self.queue, &[submit_info], self.fence)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?;
+        
+        // Wait for the fences
+        self.device
+            .wait_for_fences(&[self.fence], true, FENCES_TIMEOUT_NS)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?;
     }
 
-    fn submit_commands(&self) -> Result<(), Box<dyn Error>> {
-        unsafe {
-            self.device
-                .end_command_buffer(self.command_buffers[0])
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?
-        };
+    Ok(())
+}
 
-        let submit_info = vk::SubmitInfo::builder().command_buffers(&self.command_buffers);
-
-        unsafe {
-            self.device
-                .queue_submit(self.queue, &[submit_info.build()], self.fence)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?;
-            self.device
-                .wait_for_fences(&[self.fence], true, FENCES_TIMEOUT_NS)
-                .map_err(|e| Box::new(e) as Box<dyn Error>)?;
-        }
-
-        Ok(())
-    }
 }
 
 impl Drop for Vulkan {
