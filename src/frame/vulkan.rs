@@ -233,7 +233,7 @@ impl Vulkan {
                     vk::WHOLE_SIZE,
                     vk::MemoryMapFlags::empty(),
                 )
-                .map_err(anyhow::Error::msg)?; // Wrap the Vulkan error into anyhow error
+                .map_err(anyhow::Error::msg)?; 
             std::slice::from_raw_parts(buffer_pointer as *mut u8, pixels * 4)
         };
 
@@ -269,7 +269,7 @@ impl Vulkan {
             samples: vk::SampleCountFlags::TYPE_1,
             usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::TRANSFER_SRC,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default() // Default other fields
+            ..Default::default()
         };
 
         let image = unsafe {
@@ -282,7 +282,7 @@ impl Vulkan {
         let image_allocate_info = vk::MemoryAllocateInfo {
             allocation_size: image_memory_req.size,
             memory_type_index: 0, // Ensure this is correctly set based on memory type requirements
-            ..Default::default()  // Default other fields
+            ..Default::default()  
         };
 
         let image_memory = unsafe {
@@ -431,11 +431,11 @@ impl Vulkan {
                 base_mip_level,
                 level_count: mip_levels,
                 layer_count: 1,
-                ..Default::default() // Ensure that remaining fields are set to default
+                ..Default::default() 
             },
             src_access_mask,
             dst_access_mask,
-            ..Default::default() // Ensure that remaining fields are set to default
+            ..Default::default() 
         };
 
         unsafe {
@@ -464,7 +464,6 @@ impl Vulkan {
         dst_height: u32,
         dst_mip_level: u32,
     ) {
-        // Creating ImageBlit struct using default values and direct field assignment
         let blit_info = vk::ImageBlit {
             src_offsets: [
                 vk::Offset3D { x: 0, y: 0, z: 0 },
@@ -609,7 +608,7 @@ impl Vulkan {
                 height,
                 depth: 1,
             },
-            ..Default::default() // Initialize any remaining fields to default values
+            ..Default::default()
         };
 
         unsafe {
@@ -626,7 +625,7 @@ impl Vulkan {
     fn begin_commands(&self) -> Result<(), Box<dyn Error>> {
         let command_buffer_info = vk::CommandBufferBeginInfo {
             flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
-            ..Default::default() // Ensure all other fields are initialized with default values
+            ..Default::default() 
         };
 
         unsafe {
