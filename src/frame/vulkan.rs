@@ -608,20 +608,18 @@ impl Vulkan {
                 .expect("Failed to end command buffer");
         };
 
-        // Updated submit_info without builder()
-
         let submit_info = vk::SubmitInfo::default().command_buffers(&self.command_buffers);
 
         unsafe {
             // Submit the command buffers to the queue
             self.device
                 .queue_submit(self.queue, &[submit_info], self.fence)
-                .map_err(anyhow::Error::msg)?;
+                .expect("Failed to submit queue");
 
             // Wait for the fences
             self.device
                 .wait_for_fences(&[self.fence], true, FENCES_TIMEOUT_NS)
-                .map_err(anyhow::Error::msg)?;
+                .expect("Failed to wait for fences");
         }
 
         Ok(())
