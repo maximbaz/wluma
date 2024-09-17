@@ -320,7 +320,7 @@ impl Vulkan {
         let frame_image_memory_req_info =
             vk::ImageMemoryRequirementsInfo2::default().image(frame_image);
 
-        // Memory requirements
+        // Prepare the structures to get memory requirements into, then get the memory requirements
         let mut frame_image_mem_dedicated_req = vk::MemoryDedicatedRequirements::default();
 
         let mut frame_image_mem_req =
