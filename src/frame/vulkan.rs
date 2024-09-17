@@ -4,7 +4,7 @@ use ash::{vk, Device, Entry, Instance};
 use std::cell::RefCell;
 use std::default::Default;
 use std::error::Error;
-use std::ffi::{CString};
+use std::ffi::CString;
 use std::ops::Drop;
 
 const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 4, 0);
@@ -46,10 +46,10 @@ impl Vulkan {
 
         let entry = Entry::linked();
 
-let create_info = vk::InstanceCreateInfo::default()
-    .application_info(&app_info)
-    //.enabled_extension_count(instance_extensions.len() as u32)
-    .enabled_extension_names(instance_extensions);
+        let create_info = vk::InstanceCreateInfo::default()
+            .application_info(&app_info)
+            //.enabled_extension_count(instance_extensions.len() as u32)
+            .enabled_extension_names(instance_extensions);
 
         let instance = unsafe {
             entry
@@ -136,7 +136,7 @@ let create_info = vk::InstanceCreateInfo::default()
             &device_memory_properties,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )
-        .ok_or("Unable to find suitable memory type for the buffer")?;
+        .expect("Unable to find suitable memory type for the buffer");
 
         let allocate_info = vk::MemoryAllocateInfo {
             allocation_size: buffer_memory_req.size,
@@ -156,9 +156,7 @@ let create_info = vk::InstanceCreateInfo::default()
                 .map_err(anyhow::Error::msg)?
         };
 
-        let fence_create_info = vk::FenceCreateInfo {
-            ..Default::default()
-        };
+        let fence_create_info = vk::FenceCreateInfo::default();
         let fence = unsafe {
             device
                 .create_fence(&fence_create_info, None)
@@ -232,7 +230,7 @@ let create_info = vk::InstanceCreateInfo::default()
             self.device.unmap_memory(self.buffer_memory);
             self.device
                 .reset_fences(&[self.fence])
-                .map_err(anyhow::Error::msg)?;
+                .expect("Failed to reset fences");
             self.device.destroy_image(frame_image, None);
             self.device.free_memory(frame_image_memory, None);
         }
@@ -243,23 +241,21 @@ let create_info = vk::InstanceCreateInfo::default()
     fn init_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
         let (width, height, mip_levels) = image_dimensions(frame);
 
-        let image_create_info = vk::ImageCreateInfo {
-            image_type: vk::ImageType::TYPE_2D,
-            format: vk::Format::B8G8R8A8_UNORM,
-            extent: vk::Extent3D {
+        let image_create_info = vk::ImageCreateInfo::default()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(vk::Format::B8G8R8A8_UNORM)
+            .extent(vk::Extent3D {
                 width,
                 height,
                 depth: 1,
-            },
-            mip_levels,
-            array_layers: 1,
-            tiling: vk::ImageTiling::OPTIMAL,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            samples: vk::SampleCountFlags::TYPE_1,
-            usage: vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::TRANSFER_SRC,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default()
-        };
+            })
+            .mip_levels(mip_levels)
+            .array_layers(1)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::TRANSFER_SRC)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
         let image = unsafe {
             self.device
@@ -268,22 +264,20 @@ let create_info = vk::InstanceCreateInfo::default()
         };
         let image_memory_req = unsafe { self.device.get_image_memory_requirements(image) };
 
-        let image_allocate_info = vk::MemoryAllocateInfo {
-            allocation_size: image_memory_req.size,
-            memory_type_index: 0, // Ensure this is correctly set based on memory type requirements
-            ..Default::default()
-        };
+        let image_allocate_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(image_memory_req.size)
+            .memory_type_index(0);
 
         let image_memory = unsafe {
             self.device
                 .allocate_memory(&image_allocate_info, None)
-                .map_err(anyhow::Error::msg)?
+                .expect("Failed to allocate memory")
         };
 
         unsafe {
             self.device
                 .bind_image_memory(image, image_memory, 0)
-                .map_err(anyhow::Error::msg)?;
+                .expect("Failed to bind image memory");
         };
 
         self.image.borrow_mut().replace(image);
