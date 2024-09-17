@@ -293,49 +293,42 @@ impl Vulkan {
         frame: &Object,
     ) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
         // External memory info
-        let frame_image_memory_info = vk::ExternalMemoryImageCreateInfo {
-            handle_types: vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT,
-            ..Default::default()
-        };
+        let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
 
         // Image create info
-        let frame_image_create_info = vk::ImageCreateInfo {
-            p_next: &frame_image_memory_info as *const _ as *const std::ffi::c_void,
-            image_type: vk::ImageType::TYPE_2D,
-            format: vk::Format::R8G8B8A8_UNORM,
-            extent: vk::Extent3D {
+        let frame_image_create_info = vk::ImageCreateInfo::default()
+            .push_next(&mut frame_image_memory_info)
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(vk::Format::R8G8B8A8_UNORM)
+            .extent(vk::Extent3D {
                 width: frame.width,
                 height: frame.height,
                 depth: 1,
-            },
-            mip_levels: 1,
-            array_layers: 1,
-            tiling: vk::ImageTiling::OPTIMAL,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            samples: vk::SampleCountFlags::TYPE_1,
-            usage: vk::ImageUsageFlags::TRANSFER_SRC,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default()
-        };
+            })
+            .mip_levels(1)
+            .array_layers(1)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .usage(vk::ImageUsageFlags::TRANSFER_SRC)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
         let frame_image = unsafe {
             self.device
                 .create_image(&frame_image_create_info, None)
-                .map_err(anyhow::Error::msg)?
+                .expect("Failed to create image")
         };
 
         // Memory requirements info
-        let frame_image_memory_req_info = vk::ImageMemoryRequirementsInfo2 {
-            image: frame_image,
-            ..Default::default()
-        };
+        let frame_image_memory_req_info =
+            vk::ImageMemoryRequirementsInfo2::default().image(frame_image);
 
         // Memory requirements
         let mut frame_image_mem_dedicated_req = vk::MemoryDedicatedRequirements::default();
-        let mut frame_image_mem_req = vk::MemoryRequirements2 {
-            p_next: &mut frame_image_mem_dedicated_req as *mut _ as *mut std::ffi::c_void,
-            ..Default::default()
-        };
+
+        let mut frame_image_mem_req =
+            vk::MemoryRequirements2::default().push_next(&mut frame_image_mem_dedicated_req);
 
         unsafe {
             self.device.get_image_memory_requirements2(
@@ -350,50 +343,45 @@ impl Vulkan {
             .memory_type_bits
             .trailing_zeros();
 
-        // Import memory info
-        let frame_import_memory_info = vk::ImportMemoryFdInfoKHR {
-            handle_type: vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT,
-            fd: frame.fds[0],
-            ..Default::default()
-        };
+        // Import memory app_info
+        // Construct the memory alloctation info according to the requirements
+        // If the image needs dedicated memory, add MemoryDedicatedAllocateInfo to the info chain
+        let mut frame_import_memory_info = vk::ImportMemoryFdInfoKHR::default()
+            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
+            .fd(frame.fds[0]);
 
-        // Dedicated allocation info
-        let frame_image_memory_dedicated_info = vk::MemoryDedicatedAllocateInfo {
-            image: frame_image,
-            ..Default::default()
-        };
+        // dedicated allocation info
+        let mut frame_image_memory_dedicated_info =
+            vk::MemoryDedicatedAllocateInfo::default().image(frame_image);
 
         // Memory allocate info
-        let mut frame_image_allocate_info = vk::MemoryAllocateInfo {
-            p_next: &frame_import_memory_info as *const _ as *const std::ffi::c_void,
-            allocation_size: frame_image_mem_req.memory_requirements.size,
-            memory_type_index,
-            ..Default::default()
-        };
+        let mut frame_image_allocate_info = vk::MemoryAllocateInfo::default()
+            .push_next(&mut frame_import_memory_info)
+            .allocation_size(frame_image_mem_req.memory_requirements.size)
+            .memory_type_index(memory_type_index);
 
         if frame_image_mem_dedicated_req.prefers_dedicated_allocation == vk::TRUE {
-            frame_image_allocate_info.p_next =
-                &frame_image_memory_dedicated_info as *const _ as *const std::ffi::c_void;
+            frame_image_allocate_info =
+                frame_image_allocate_info.push_next(&mut frame_image_memory_dedicated_info);
         }
 
         // Allocate memory and bind it to the image
         let frame_image_memory = unsafe {
             self.device
                 .allocate_memory(&frame_image_allocate_info, None)
-                .map_err(anyhow::Error::msg)?
+                .expect("Failed to allocate memory")
         };
 
         unsafe {
             self.device
                 .bind_image_memory(frame_image, frame_image_memory, 0)
-                .map_err(anyhow::Error::msg)?
+                .expect("Failed to bind image memory");
         };
 
         Ok((frame_image, frame_image_memory))
     }
 
     #[allow(clippy::too_many_arguments)]
-
     fn add_barrier(
         &self,
         image: &vk::Image,
@@ -405,21 +393,19 @@ impl Vulkan {
         dst_access_mask: vk::AccessFlags,
         src_stage_mask: vk::PipelineStageFlags,
     ) {
-        let image_barrier = vk::ImageMemoryBarrier {
-            old_layout,
-            new_layout,
-            image: *image,
-            subresource_range: vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level,
-                level_count: mip_levels,
-                layer_count: 1,
-                ..Default::default()
-            },
-            src_access_mask,
-            dst_access_mask,
-            ..Default::default()
-        };
+        let image_barrier = vk::ImageMemoryBarrier::default()
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .image(*image)
+            .subresource_range(
+                vk::ImageSubresourceRange::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .base_mip_level(base_mip_level)
+                    .level_count(mip_levels)
+                    .layer_count(1),
+            )
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask);
 
         unsafe {
             self.device.cmd_pipeline_barrier(
