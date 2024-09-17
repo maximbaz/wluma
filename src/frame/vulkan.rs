@@ -421,7 +421,6 @@ impl Vulkan {
     }
 
     #[allow(clippy::too_many_arguments)]
-
     fn blit(
         &self,
         src_image: &vk::Image,
@@ -433,36 +432,35 @@ impl Vulkan {
         dst_height: u32,
         dst_mip_level: u32,
     ) {
-        let blit_info = vk::ImageBlit {
-            src_offsets: [
+        let blit_info = vk::ImageBlit::default()
+            .src_offsets([
                 vk::Offset3D { x: 0, y: 0, z: 0 },
                 vk::Offset3D {
                     x: src_width as i32,
                     y: src_height as i32,
                     z: 1,
                 },
-            ],
-            src_subresource: vk::ImageSubresourceLayers {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                mip_level: src_mip_level,
-                base_array_layer: 0,
-                layer_count: 1,
-            },
-            dst_offsets: [
+            ])
+            .src_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(src_mip_level)
+                    .layer_count(1),
+            )
+            .dst_offsets([
                 vk::Offset3D { x: 0, y: 0, z: 0 },
                 vk::Offset3D {
                     x: dst_width as i32,
                     y: dst_height as i32,
                     z: 1,
                 },
-            ],
-            dst_subresource: vk::ImageSubresourceLayers {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                mip_level: dst_mip_level,
-                base_array_layer: 0,
-                layer_count: 1,
-            },
-        };
+            ])
+            .dst_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(dst_mip_level)
+                    .layer_count(1),
+            );
 
         unsafe {
             self.device.cmd_blit_image(
@@ -564,21 +562,19 @@ impl Vulkan {
             vk::PipelineStageFlags::TRANSFER,
         );
 
-        let buffer_image_copy = vk::BufferImageCopy {
-            image_subresource: vk::ImageSubresourceLayers {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                mip_level,
-                base_array_layer: 0, // Set this as needed
-                layer_count: 1,
-            },
-            image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
-            image_extent: vk::Extent3D {
+        let buffer_image_copy = vk::BufferImageCopy::default()
+            .image_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(mip_level)
+                    .layer_count(1),
+            )
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
                 width,
                 height,
                 depth: 1,
-            },
-            ..Default::default()
-        };
+            });
 
         unsafe {
             self.device.cmd_copy_image_to_buffer(
@@ -592,15 +588,13 @@ impl Vulkan {
     }
 
     fn begin_commands(&self) -> Result<(), Box<dyn Error>> {
-        let command_buffer_info = vk::CommandBufferBeginInfo {
-            flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
-            ..Default::default()
-        };
+        let command_buffer_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
         unsafe {
             self.device
                 .begin_command_buffer(self.command_buffers[0], &command_buffer_info)
-                .map_err(anyhow::Error::msg)?
+                .expect("Failed to begin command buffer");
         }
 
         Ok(())
@@ -611,15 +605,12 @@ impl Vulkan {
             // End the command buffer
             self.device
                 .end_command_buffer(self.command_buffers[0])
-                .map_err(anyhow::Error::msg)?
+                .expect("Failed to end command buffer");
         };
 
         // Updated submit_info without builder()
-        let submit_info = vk::SubmitInfo {
-            command_buffer_count: self.command_buffers.len() as u32,
-            p_command_buffers: self.command_buffers.as_ptr(),
-            ..Default::default()
-        };
+
+        let submit_info = vk::SubmitInfo::default().command_buffers(&self.command_buffers);
 
         unsafe {
             // Submit the command buffers to the queue
