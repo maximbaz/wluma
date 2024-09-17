@@ -48,7 +48,6 @@ impl Vulkan {
 
         let create_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
-            //.enabled_extension_count(instance_extensions.len() as u32)
             .enabled_extension_names(instance_extensions);
 
         let instance = unsafe {
@@ -69,7 +68,6 @@ impl Vulkan {
         let queue_family_index = 0;
         let queue_info = &[vk::DeviceQueueCreateInfo::default()
             .queue_family_index(queue_family_index)
-            //p_queue_priorities: [1.0f32].as_ptr(),
             .queue_priorities(&[1.0])];
 
         let device_extensions = &[
@@ -81,9 +79,7 @@ impl Vulkan {
 
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(queue_info)
-            //queue_create_info_count: queue_info.len() as u32,
             .enabled_extension_names(device_extensions)
-            //enabled_extension_count: device_extensions.len() as u32,
             .enabled_features(&features);
 
         let device = unsafe {
@@ -136,7 +132,7 @@ impl Vulkan {
             &device_memory_properties,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )
-        .expect("Unable to find suitable memory type for the buffer");
+        .ok_or("Unable to find suitable memory type for the buffer")?;
 
         let allocate_info = vk::MemoryAllocateInfo {
             allocation_size: buffer_memory_req.size,
@@ -230,7 +226,7 @@ impl Vulkan {
             self.device.unmap_memory(self.buffer_memory);
             self.device
                 .reset_fences(&[self.fence])
-                .expect("Failed to reset fences");
+                .map_err(anyhow::Error::msg)?;
             self.device.destroy_image(frame_image, None);
             self.device.free_memory(frame_image_memory, None);
         }
@@ -271,13 +267,13 @@ impl Vulkan {
         let image_memory = unsafe {
             self.device
                 .allocate_memory(&image_allocate_info, None)
-                .expect("Failed to allocate memory")
+                .map_err(anyhow::Error::msg)?
         };
 
         unsafe {
             self.device
                 .bind_image_memory(image, image_memory, 0)
-                .expect("Failed to bind image memory");
+                .map_err(anyhow::Error::msg)?
         };
 
         self.image.borrow_mut().replace(image);
@@ -317,7 +313,7 @@ impl Vulkan {
         let frame_image = unsafe {
             self.device
                 .create_image(&frame_image_create_info, None)
-                .expect("Failed to create image")
+                .map_err(anyhow::Error::msg)?
         };
 
         // Memory requirements info
@@ -336,6 +332,10 @@ impl Vulkan {
                 &mut frame_image_mem_req,
             );
         }
+
+        // Bit i in memory_type_bits is set if the ith memory type in the
+        // VkPhysicalDeviceMemoryProperties structure is supported for the image memory.
+        // We just use the first type supported (from least significant bit's side)
 
         // Find suitable memory type index
         let memory_type_index = frame_image_mem_req
@@ -369,13 +369,13 @@ impl Vulkan {
         let frame_image_memory = unsafe {
             self.device
                 .allocate_memory(&frame_image_allocate_info, None)
-                .expect("Failed to allocate memory")
+                .map_err(anyhow::Error::msg)?
         };
 
         unsafe {
             self.device
                 .bind_image_memory(frame_image, frame_image_memory, 0)
-                .expect("Failed to bind image memory");
+                .map_err(anyhow::Error::msg)?;
         };
 
         Ok((frame_image, frame_image_memory))
@@ -594,7 +594,7 @@ impl Vulkan {
         unsafe {
             self.device
                 .begin_command_buffer(self.command_buffers[0], &command_buffer_info)
-                .expect("Failed to begin command buffer");
+                .map_err(anyhow::Error::msg)?;
         }
 
         Ok(())
@@ -605,7 +605,7 @@ impl Vulkan {
             // End the command buffer
             self.device
                 .end_command_buffer(self.command_buffers[0])
-                .expect("Failed to end command buffer");
+                .map_err(anyhow::Error::msg)?;
         };
 
         let submit_info = vk::SubmitInfo::default().command_buffers(&self.command_buffers);
@@ -614,12 +614,12 @@ impl Vulkan {
             // Submit the command buffers to the queue
             self.device
                 .queue_submit(self.queue, &[submit_info], self.fence)
-                .expect("Failed to submit queue");
+                .map_err(anyhow::Error::msg)?;
 
             // Wait for the fences
             self.device
                 .wait_for_fences(&[self.fence], true, FENCES_TIMEOUT_NS)
-                .expect("Failed to wait for fences");
+                .map_err(anyhow::Error::msg)?;
         }
 
         Ok(())
