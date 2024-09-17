@@ -1,10 +1,10 @@
-#[als.iio]
-#path = "/sys/bus/iio/devices"
-#thresholds = { 0 = "night", 20 = "dark", 80 = "dim", 250 = "normal", 500 = "bright", 800 = "outdoors" }
+[als.iio]
+path = "/sys/bus/iio/devices"
+thresholds = { 0 = "night", 20 = "dark", 80 = "dim", 250 = "normal", 500 = "bright", 800 = "outdoors" }
 
-[als.webcam]
-video = 0
-thresholds = { 0 = "night", 15 = "dark", 30 = "dim", 45 = "normal", 60 = "bright", 75 = "outdoors" }
+# [als.webcam]
+# video = 0
+# thresholds = { 0 = "night", 15 = "dark", 30 = "dim", 45 = "normal", 60 = "bright", 75 = "outdoors" }
 
 # [als.time]
 # thresholds = { 0 = "night", 7 = "dark", 9 = "dim", 11 = "normal", 13 = "bright", 16 = "normal", 18 = "dark", 20 = "night" }
@@ -13,7 +13,7 @@ thresholds = { 0 = "night", 15 = "dark", 30 = "dim", 45 = "normal", 60 = "bright
 
 [[output.backlight]]
 name = "eDP-1"
-path = "/sys/devices/pci0000:00/0000:00:08.1/0000:07:00.0/drm/card2/card2-eDP-1/amdgpu_bl2"
+path = "/sys/class/backlight/intel_backlight"
 capturer = "wlroots"
 
 # [[output.ddcutil]]
@@ -21,8 +21,8 @@ capturer = "wlroots"
 # capturer = "none"
 
 [[keyboard]]
-name = "keyboard-MSI"
-path = "/sys/class/net/enp4s0/enp4s0-2::lan"
+name = "keyboard-dell"
+path = "/sys/bus/platform/devices/dell-laptop/leds/dell::kbd_backlight"
 
 # [[keyboard]]
 # name = "keyboard-thinkpad"
