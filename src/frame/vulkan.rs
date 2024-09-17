@@ -4,7 +4,7 @@ use ash::{vk, Device, Entry, Instance};
 use std::cell::RefCell;
 use std::default::Default;
 use std::error::Error;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::ops::Drop;
 
 const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 4, 0);
@@ -42,9 +42,8 @@ impl Vulkan {
         };
 
         let instance_extensions = &[
-            CStr::from_bytes_with_nul(b"vkGetPhysicalDeviceProperties2\0")
-                .unwrap()
-                .as_ptr(),
+            vk::KHR_EXTERNAL_MEMORY_CAPABILITIES_NAME.as_ptr(),
+            vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME.as_ptr(),
         ];
 
         let entry = Entry::linked();
