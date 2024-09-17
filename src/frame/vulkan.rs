@@ -4,7 +4,7 @@ use ash::{vk, Device, Entry, Instance};
 use std::cell::RefCell;
 use std::default::Default;
 use std::error::Error;
-use std::ffi::CString;
+use std::ffi::{CString};
 use std::ops::Drop;
 
 const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 4, 0);
@@ -32,14 +32,12 @@ pub struct Vulkan {
 impl Vulkan {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let app_name = CString::new("wluma")?;
-        let app_info = vk::ApplicationInfo {
-            p_application_name: app_name.as_ptr(),
-            application_version: WLUMA_VERSION,
-            p_engine_name: app_name.as_ptr(),
-            engine_version: WLUMA_VERSION,
-            api_version: VULKAN_VERSION,
-            ..Default::default()
-        };
+        let app_info = vk::ApplicationInfo::default()
+            .application_name(&app_name)
+            .application_version(WLUMA_VERSION)
+            .engine_name(&app_name)
+            .engine_version(WLUMA_VERSION)
+            .api_version(VULKAN_VERSION);
 
         let instance_extensions = &[
             vk::KHR_EXTERNAL_MEMORY_CAPABILITIES_NAME.as_ptr(),
@@ -48,12 +46,10 @@ impl Vulkan {
 
         let entry = Entry::linked();
 
-        let create_info = vk::InstanceCreateInfo {
-            p_application_info: &app_info,
-            enabled_extension_count: instance_extensions.len() as u32,
-            pp_enabled_extension_names: instance_extensions.as_ptr(),
-            ..Default::default()
-        };
+let create_info = vk::InstanceCreateInfo::default()
+    .application_info(&app_info)
+    //.enabled_extension_count(instance_extensions.len() as u32)
+    .enabled_extension_names(instance_extensions);
 
         let instance = unsafe {
             entry
@@ -71,24 +67,24 @@ impl Vulkan {
             .ok_or("Unable to find a physical device")?;
 
         let queue_family_index = 0;
-        let queue_info = [vk::DeviceQueueCreateInfo {
-            queue_family_index,
-            p_queue_priorities: [1.0f32].as_ptr(),
-            queue_count: 1,
-            ..Default::default()
-        }];
+        let queue_info = &[vk::DeviceQueueCreateInfo::default()
+            .queue_family_index(queue_family_index)
+            //p_queue_priorities: [1.0f32].as_ptr(),
+            .queue_priorities(&[1.0])];
 
-        let device_extensions = &[vk::EXT_EXTERNAL_MEMORY_DMA_BUF_NAME.as_ptr()];
+        let device_extensions = &[
+            vk::KHR_EXTERNAL_MEMORY_CAPABILITIES_NAME.as_ptr(),
+            vk::KHR_EXTERNAL_MEMORY_FD_NAME.as_ptr(),
+            vk::EXT_EXTERNAL_MEMORY_DMA_BUF_NAME.as_ptr(),
+        ];
         let features = vk::PhysicalDeviceFeatures::default();
 
-        let device_create_info = vk::DeviceCreateInfo {
-            p_queue_create_infos: queue_info.as_ptr(),
-            queue_create_info_count: queue_info.len() as u32,
-            pp_enabled_extension_names: device_extensions.as_ptr(),
-            enabled_extension_count: device_extensions.len() as u32,
-            p_enabled_features: &features,
-            ..Default::default()
-        };
+        let device_create_info = vk::DeviceCreateInfo::default()
+            .queue_create_infos(queue_info)
+            //queue_create_info_count: queue_info.len() as u32,
+            .enabled_extension_names(device_extensions)
+            //enabled_extension_count: device_extensions.len() as u32,
+            .enabled_features(&features);
 
         let device = unsafe {
             instance
@@ -98,11 +94,9 @@ impl Vulkan {
 
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
 
-        let pool_create_info = vk::CommandPoolCreateInfo {
-            flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
-            queue_family_index,
-            ..Default::default()
-        };
+        let pool_create_info = vk::CommandPoolCreateInfo::default()
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+            .queue_family_index(queue_family_index);
 
         let command_pool = unsafe {
             device
@@ -110,12 +104,10 @@ impl Vulkan {
                 .map_err(anyhow::Error::msg)?
         };
 
-        let command_buffer_allocate_info = vk::CommandBufferAllocateInfo {
-            command_pool,
-            command_buffer_count: 1,
-            level: vk::CommandBufferLevel::PRIMARY,
-            ..Default::default()
-        };
+        let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::default()
+            .command_buffer_count(1)
+            .command_pool(command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY);
 
         let command_buffers = unsafe {
             device
@@ -123,12 +115,10 @@ impl Vulkan {
                 .map_err(anyhow::Error::msg)?
         };
 
-        let buffer_info = vk::BufferCreateInfo {
-            size: BUFFER_PIXELS,
-            usage: vk::BufferUsageFlags::TRANSFER_DST,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default()
-        };
+        let buffer_info = vk::BufferCreateInfo::default()
+            .size(BUFFER_PIXELS)
+            .usage(vk::BufferUsageFlags::TRANSFER_DST)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
         let buffer = unsafe {
             device
