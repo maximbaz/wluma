@@ -32,6 +32,7 @@
         };
         devShell = with pkgs; mkShell {
           buildInputs = [ cargo rustc rustfmt pre-commit rustPackages.clippy pkg-config ] ++ libs;
+          LD_LIBRARY_PATH = "${lib.makeLibraryPath [ wayland ]}";
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
           LIBCLANG_PATH = "${llvmPackages_12.libclang.lib}/lib";
           BINDGEN_EXTRA_CLANG_ARGS = [
