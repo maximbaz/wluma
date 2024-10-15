@@ -71,7 +71,6 @@ impl Vulkan {
             .queue_priorities(&[1.0])];
 
         let device_extensions = &[
-            vk::KHR_EXTERNAL_MEMORY_CAPABILITIES_NAME.as_ptr(),
             vk::KHR_EXTERNAL_MEMORY_FD_NAME.as_ptr(),
             vk::EXT_EXTERNAL_MEMORY_DMA_BUF_NAME.as_ptr(),
         ];
