@@ -50,6 +50,6 @@ body:
       label: Environment
       render: shell
       description: It would help to know your environment. Please run the command below and paste the output here. If you want to add something else that could help, please do so!
-      value: lsb_release -a; uname -a; pgrep -l sway; pacman -Q | egrep "(wlroots|vulkan|sway|clang|rust)"; dpkg -l | egrep "(wlroots|vulkan|sway|clang|rust)"
+      value: lsb_release -a; uname -a; pgrep -l sway; pacman -Q | egrep "(wlroots|vulkan|sway|clang|rust)"; dpkg -l | egrep "(wlroots|vulkan|sway|clang|rust)"; echo "WLR_DRM_NO_MODIFIERS=$WLR_DRM_NO_MODIFIERS"
     validations:
       required: true
