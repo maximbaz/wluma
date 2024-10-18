@@ -17,6 +17,7 @@ pub enum Als {
     },
     Webcam {
         video: usize,
+        sleep_ms: Option<u64>,
         thresholds: HashMap<u64, String>,
     },
     None,
