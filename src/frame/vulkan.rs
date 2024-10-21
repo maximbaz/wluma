@@ -303,6 +303,8 @@ impl Vulkan {
             })
             .mip_levels(1)
             .array_layers(1)
+            // TODO 2: swap tiling here
+            // .tiling(vk::ImageTiling::OPTIMAL)
             .tiling(vk::ImageTiling::LINEAR)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -482,6 +484,7 @@ impl Vulkan {
     ) -> (u32, u32, u32) {
         let (mut mip_width, mut mip_height, mip_levels) = image_dimensions(frame);
 
+        // TODO 1: /********************* comment this
         self.add_barrier(
             frame_image,
             0,
@@ -514,6 +517,9 @@ impl Vulkan {
             mip_height,
             0,
         );
+        // **************/ and uncomment the next line
+
+        // self.copy_image(frame_image, image, mip_levels, frame.width, frame.height);
 
         let target_mip_level = 0; //mip_levels - FINAL_MIP_LEVEL;
         for i in 1..=target_mip_level {
@@ -582,6 +588,67 @@ impl Vulkan {
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 self.buffer,
                 &[buffer_image_copy],
+            );
+        }
+    }
+
+    fn copy_image(
+        &self,
+        source: &vk::Image,
+        dest: &vk::Image,
+        mip_levels: u32,
+        width: u32,
+        height: u32,
+    ) {
+        self.add_barrier(
+            source,
+            0,
+            1,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            vk::AccessFlags::default(),
+            vk::AccessFlags::TRANSFER_READ,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+        );
+
+        self.add_barrier(
+            dest,
+            0,
+            mip_levels,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::AccessFlags::default(),
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+        );
+
+        let copy_region = vk::ImageCopy::default()
+            .src_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0)
+                    .layer_count(1),
+            )
+            .dst_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0)
+                    .layer_count(1),
+            )
+            .extent(vk::Extent3D {
+                width,
+                height,
+                depth: 1,
+            });
+
+        unsafe {
+            self.device.cmd_copy_image(
+                self.command_buffers[0],
+                *source,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                *dest,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[copy_region],
             );
         }
     }
