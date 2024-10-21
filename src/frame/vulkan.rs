@@ -179,6 +179,10 @@ impl Vulkan {
             1, frame.num_objects,
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
         );
+        assert_eq!(
+            875713112, frame.format,
+            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
+        );
 
         if self.image.borrow().is_none() {
             self.init_image(frame)?;
@@ -295,7 +299,7 @@ impl Vulkan {
         let frame_image_create_info = vk::ImageCreateInfo::default()
             .push_next(&mut frame_image_memory_info)
             .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::R8G8B8A8_UNORM)
+            .format(vk::Format::B8G8R8A8_UNORM)
             .extent(vk::Extent3D {
                 width: frame.width,
                 height: frame.height,
@@ -482,7 +486,38 @@ impl Vulkan {
     ) -> (u32, u32, u32) {
         let (mut mip_width, mut mip_height, mip_levels) = image_dimensions(frame);
 
-        self.copy_image(frame_image, image, mip_levels, frame.width, frame.height);
+        self.add_barrier(
+            frame_image,
+            0,
+            1,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            vk::AccessFlags::default(),
+            vk::AccessFlags::TRANSFER_READ,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+        );
+
+        self.add_barrier(
+            image,
+            0,
+            mip_levels,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::AccessFlags::default(),
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+        );
+
+        self.blit(
+            frame_image,
+            frame.width,
+            frame.height,
+            0,
+            image,
+            mip_width,
+            mip_height,
+            0,
+        );
 
         let target_mip_level = 0; //mip_levels - FINAL_MIP_LEVEL;
         for i in 1..=target_mip_level {
@@ -551,67 +586,6 @@ impl Vulkan {
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 self.buffer,
                 &[buffer_image_copy],
-            );
-        }
-    }
-
-    fn copy_image(
-        &self,
-        source: &vk::Image,
-        dest: &vk::Image,
-        mip_levels: u32,
-        width: u32,
-        height: u32,
-    ) {
-        self.add_barrier(
-            source,
-            0,
-            1,
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::AccessFlags::default(),
-            vk::AccessFlags::TRANSFER_READ,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-        );
-
-        self.add_barrier(
-            dest,
-            0,
-            mip_levels,
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::AccessFlags::default(),
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-        );
-
-        let copy_region = vk::ImageCopy::default()
-            .src_subresource(
-                vk::ImageSubresourceLayers::default()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .mip_level(0)
-                    .layer_count(1),
-            )
-            .dst_subresource(
-                vk::ImageSubresourceLayers::default()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .mip_level(0)
-                    .layer_count(1),
-            )
-            .extent(vk::Extent3D {
-                width,
-                height,
-                depth: 1,
-            });
-
-        unsafe {
-            self.device.cmd_copy_image(
-                self.command_buffers[0],
-                *source,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                *dest,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[copy_region],
             );
         }
     }
