@@ -238,7 +238,7 @@ impl Vulkan {
 
         let image_create_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::B8G8R8A8_UNORM)
+            .format(vk::Format::R8G8B8A8_UNORM)
             .extent(vk::Extent3D {
                 width,
                 height,
@@ -303,8 +303,6 @@ impl Vulkan {
             })
             .mip_levels(1)
             .array_layers(1)
-            // TODO 2: swap tiling here
-            // .tiling(vk::ImageTiling::OPTIMAL)
             .tiling(vk::ImageTiling::LINEAR)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -484,42 +482,7 @@ impl Vulkan {
     ) -> (u32, u32, u32) {
         let (mut mip_width, mut mip_height, mip_levels) = image_dimensions(frame);
 
-        // TODO 1: /********************* comment this
-        self.add_barrier(
-            frame_image,
-            0,
-            1,
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::AccessFlags::default(),
-            vk::AccessFlags::TRANSFER_READ,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-        );
-
-        self.add_barrier(
-            image,
-            0,
-            mip_levels,
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::AccessFlags::default(),
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-        );
-
-        self.blit(
-            frame_image,
-            frame.width,
-            frame.height,
-            0,
-            image,
-            mip_width,
-            mip_height,
-            0,
-        );
-        // **************/ and uncomment the next line
-
-        // self.copy_image(frame_image, image, mip_levels, frame.width, frame.height);
+        self.copy_image(frame_image, image, mip_levels, frame.width, frame.height);
 
         let target_mip_level = 0; //mip_levels - FINAL_MIP_LEVEL;
         for i in 1..=target_mip_level {
