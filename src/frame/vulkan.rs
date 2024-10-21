@@ -179,6 +179,10 @@ impl Vulkan {
             1, frame.num_objects,
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
         );
+        assert_eq!(
+            875713112, frame.format,
+            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
+        );
 
         if self.image.borrow().is_none() {
             self.init_image(frame)?;
