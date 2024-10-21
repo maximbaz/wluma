@@ -110,8 +110,16 @@ impl Capturer {
                     width,
                     height,
                     num_objects,
+                    format,
+                    buffer_flags,
+                    flags,
+                    mod_high,
+                    mod_low,
                     ..
                 } => {
+                    println!("Frame: width: {} height: {} num_objects: {} format: {} buffer_flags: {} flags: {:?} mod_high: {} mod_low: {}",
+                        width, height, num_objects, format, buffer_flags, flags, mod_high, mod_low
+                    );
                     frame.set_metadata(width, height, num_objects);
                 }
 
