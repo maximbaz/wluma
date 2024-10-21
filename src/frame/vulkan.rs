@@ -253,6 +253,8 @@ impl Vulkan {
         ];
 
         for format in formats {
+            let mut external_image_format_properties = vk::ExternalImageFormatProperties::default();
+
             let mut pdeifi = vk::PhysicalDeviceExternalImageFormatInfo::default()
                 .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
 
@@ -262,7 +264,9 @@ impl Vulkan {
                 .format(format)
                 .tiling(vk::ImageTiling::OPTIMAL)
                 .usage(vk::ImageUsageFlags::TRANSFER_SRC);
-            let mut ifp = vk::ImageFormatProperties2::default();
+
+            let mut ifp = vk::ImageFormatProperties2::default()
+                .push_next(&mut external_image_format_properties);
 
             let res = unsafe {
                 instance.get_physical_device_image_format_properties2(
