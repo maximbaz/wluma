@@ -11,7 +11,7 @@ const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 4, 0);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
 
 const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GPU is doing too poor of a job averaging the colors
-const BUFFER_PIXELS: u64 = 500 * 4; // Pre-allocated buffer size, should be enough to fit FINAL_MIP_LEVEL
+const BUFFER_PIXELS: u64 = 3840 * 2160 * 4; // Pre-allocated buffer size, should be enough to fit FINAL_MIP_LEVEL
 const FENCES_TIMEOUT_NS: u64 = 1_000_000_000;
 
 pub struct Vulkan {
@@ -515,7 +515,7 @@ impl Vulkan {
             0,
         );
 
-        let target_mip_level = mip_levels - FINAL_MIP_LEVEL;
+        let target_mip_level = 0; //mip_levels - FINAL_MIP_LEVEL;
         for i in 1..=target_mip_level {
             self.add_barrier(
                 image,
@@ -652,9 +652,9 @@ impl Drop for Vulkan {
 }
 
 fn image_dimensions(frame: &Object) -> (u32, u32, u32) {
-    let width = frame.width / 2;
-    let height = frame.height / 2;
-    let mip_levels = f64::max(width.into(), height.into()).log2().floor() as u32 + 1;
+    let width = frame.width;
+    let height = frame.height;
+    let mip_levels = f64::max(width.into(), height.into()).log2().floor() as u32;
     (width, height, mip_levels)
 }
 

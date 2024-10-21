@@ -5,6 +5,9 @@ mod object;
 pub mod vulkan;
 
 pub fn compute_perceived_lightness_percent(rgbas: &[u8], has_alpha: bool, pixels: usize) -> u8 {
+    let mut v = rgbas.to_vec();
+    v.truncate(10);
+    println!("{:?}", v);
     let channels = if has_alpha { 4 } else { 3 };
 
     let (rs, gs, bs) = rgbas
