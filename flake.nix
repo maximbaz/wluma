@@ -33,6 +33,9 @@
         devShell = with pkgs; mkShell {
           buildInputs = [ cargo rustc rustfmt pre-commit rustPackages.clippy pkg-config ] ++ libs;
           LD_LIBRARY_PATH = "${lib.makeLibraryPath [ wayland ]}";
+          VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+          VK_INSTANCE_LAYERS = "VK_LAYER_KHRONOS_validation";
+          VK_LOADER_DEBUG = "error,warn";
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
           LIBCLANG_PATH = "${llvmPackages_12.libclang.lib}/lib";
           BINDGEN_EXTRA_CLANG_ARGS = [
