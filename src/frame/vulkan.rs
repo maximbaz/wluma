@@ -262,7 +262,7 @@ impl Vulkan {
                 .push_next(&mut pdeifi)
                 .ty(vk::ImageType::TYPE_2D)
                 .format(format)
-                .tiling(vk::ImageTiling::OPTIMAL)
+                .tiling(vk::ImageTiling::LINEAR)
                 .usage(vk::ImageUsageFlags::TRANSFER_SRC);
 
             let mut ifp = vk::ImageFormatProperties2::default()
@@ -516,7 +516,7 @@ impl Vulkan {
             })
             .mip_levels(1)
             .array_layers(1)
-            .tiling(vk::ImageTiling::OPTIMAL)
+            .tiling(vk::ImageTiling::LINEAR)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .samples(vk::SampleCountFlags::TYPE_1)
             .usage(vk::ImageUsageFlags::TRANSFER_SRC)
