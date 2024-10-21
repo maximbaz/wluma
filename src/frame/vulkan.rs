@@ -242,7 +242,7 @@ impl Vulkan {
 
         let image_create_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::B8G8R8A8_UNORM)
+            .format(vk::Format::R8G8B8A8_UNORM)
             .extent(vk::Extent3D {
                 width,
                 height,
@@ -299,7 +299,7 @@ impl Vulkan {
         let frame_image_create_info = vk::ImageCreateInfo::default()
             .push_next(&mut frame_image_memory_info)
             .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::R8G8B8A8_UNORM)
+            .format(vk::Format::B8G8R8A8_UNORM)
             .extent(vk::Extent3D {
                 width: frame.width,
                 height: frame.height,
@@ -307,7 +307,7 @@ impl Vulkan {
             })
             .mip_levels(1)
             .array_layers(1)
-            .tiling(vk::ImageTiling::OPTIMAL)
+            .tiling(vk::ImageTiling::LINEAR)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .samples(vk::SampleCountFlags::TYPE_1)
             .usage(vk::ImageUsageFlags::TRANSFER_SRC)
