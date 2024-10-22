@@ -67,11 +67,12 @@ fn main() {
                     std::thread::Builder::new()
                         .name(thread_name.clone())
                         .spawn(move || {
-                            let frame_capturer: Box<dyn frame::capturer::Capturer> =
+                            let mut frame_capturer: Box<dyn frame::capturer::Capturer> =
                                 match output_capturer {
-                                    config::Capturer::Wlroots => {
-                                        Box::<frame::capturer::wlroots::Capturer>::default()
-                                    }
+                                    config::Capturer::WlrExportDmabufUnstableV1 => Box::<
+                                        frame::capturer::wlr_export_dmabuf_unstable_v1::Capturer,
+                                    >::default(
+                                    ),
                                     config::Capturer::None => {
                                         Box::<frame::capturer::none::Capturer>::default()
                                     }

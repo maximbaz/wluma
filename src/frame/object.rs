@@ -1,6 +1,5 @@
-use std::os::unix::io::RawFd;
+use std::os::fd::{IntoRawFd, OwnedFd, RawFd};
 
-#[derive(Default)]
 pub struct Object {
     pub width: u32,
     pub height: u32,
@@ -11,17 +10,19 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn set_metadata(&mut self, width: u32, height: u32, num_objects: u32, format: u32) {
-        self.width = width;
-        self.height = height;
-        self.num_objects = num_objects;
-        self.format = format;
-        self.fds.resize(num_objects as usize, 0);
-        self.sizes.resize(num_objects as usize, 0);
+    pub fn new(width: u32, height: u32, num_objects: u32, format: u32) -> Self {
+        Self {
+            width,
+            height,
+            num_objects,
+            format,
+            fds: vec![0; num_objects as usize],
+            sizes: vec![0; num_objects as usize],
+        }
     }
 
-    pub fn set_object(&mut self, index: u32, fd: RawFd, size: u32) {
-        self.fds[index as usize] = fd;
+    pub fn set_object(&mut self, index: u32, fd: OwnedFd, size: u32) {
+        self.fds[index as usize] = fd.into_raw_fd();
         self.sizes[index as usize] = size;
     }
 }

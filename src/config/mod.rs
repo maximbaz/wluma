@@ -35,7 +35,13 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     min_brightness: 1,
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
-                        file::Capturer::Wlroots => app::Capturer::Wlroots,
+                        file::Capturer::WlrExportDmabufUnstableV1 => {
+                            app::Capturer::WlrExportDmabufUnstableV1
+                        }
+                        file::Capturer::DeprecatedWlrExportDmabufUnstableV1 => {
+                            log::warn!("capturer=\"wlroots\" is deprecated by capturer=\"wlr-export-dmabuf-unstable-v1\"");
+                            app::Capturer::WlrExportDmabufUnstableV1
+                        }
                     },
                 })
             })
@@ -45,7 +51,13 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     min_brightness: 1,
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
-                        file::Capturer::Wlroots => app::Capturer::Wlroots,
+                        file::Capturer::WlrExportDmabufUnstableV1 => {
+                            app::Capturer::WlrExportDmabufUnstableV1
+                        }
+                        file::Capturer::DeprecatedWlrExportDmabufUnstableV1 => {
+                            log::warn!("capturer=\"wlroots\" is deprecated by capturer=\"wlr-export-dmabuf-unstable-v1\"");
+                            app::Capturer::WlrExportDmabufUnstableV1
+                        }
                     },
                 })
             }))

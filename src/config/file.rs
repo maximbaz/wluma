@@ -2,9 +2,12 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "lowercase")]
 pub enum Capturer {
-    Wlroots,
+    #[serde(rename = "wlroots")]
+    DeprecatedWlrExportDmabufUnstableV1,
+    #[serde(rename = "wlr-export-dmabuf-unstable-v1")]
+    WlrExportDmabufUnstableV1,
+    #[serde(rename = "none")]
     None,
 }
 

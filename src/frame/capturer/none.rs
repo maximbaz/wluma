@@ -5,7 +5,7 @@ use std::{thread, time::Duration};
 pub struct Capturer {}
 
 impl super::Capturer for Capturer {
-    fn run(&self, _output_name: &str, mut controller: Controller) {
+    fn run(&mut self, _output_name: &str, mut controller: Controller) {
         loop {
             controller.adjust(0);
             thread::sleep(Duration::from_millis(200));
