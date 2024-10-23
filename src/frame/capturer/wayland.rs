@@ -39,6 +39,7 @@ pub struct Capturer {
     output_global_id: Option<u32>,
     screencopy_manager: Option<ZwlrScreencopyManagerV1>,
     dmabuf: Option<ZwpLinuxDmabufV1>,
+    wlbuffer: Option<WlBuffer>,
     dmabuf_manager: Option<ZwlrExportDmabufManagerV1>,
     pending_frame: Option<Object>,
     controller: Option<Controller>,
@@ -60,6 +61,7 @@ impl Capturer {
             output_global_id: None,
             screencopy_manager: None,
             dmabuf: None,
+            wlbuffer: None,
             dmabuf_manager: None,
             pending_frame: None,
             controller: None,
@@ -420,8 +422,8 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                 );
 
                 frame.copy(&buffer);
-                buffer.destroy();
 
+                state.wlbuffer = Some(buffer);
                 state.pending_frame = Some(pending_frame);
             }
 
@@ -440,6 +442,9 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
 
                 frame.destroy();
                 state.pending_frame = None;
+                if let Some(buffer) = state.wlbuffer.take() {
+                    buffer.destroy()
+                }
 
                 thread::sleep(DELAY_SUCCESS);
                 state.is_processing_frame = false;
@@ -448,6 +453,9 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
             zwlr_screencopy_frame_v1::Event::Failed {} => {
                 frame.destroy();
                 state.pending_frame = None;
+                if let Some(buffer) = state.wlbuffer.take() {
+                    buffer.destroy()
+                }
 
                 log::error!("Frame copy failed");
                 thread::sleep(DELAY_FAILURE);
