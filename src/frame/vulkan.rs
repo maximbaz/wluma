@@ -7,6 +7,7 @@ use std::default::Default;
 use std::error::Error;
 use std::ffi::CString;
 use std::ops::Drop;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 4, 1);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
@@ -31,6 +32,7 @@ pub struct Vulkan {
     image_resolution: RefCell<Option<(u32, u32)>>,
     frame_image: RefCell<Option<vk::Image>>,
     frame_image_memory: RefCell<Option<vk::DeviceMemory>>,
+    frame_image_fd: RefCell<Option<OwnedFd>>,
 }
 
 impl Vulkan {
@@ -180,6 +182,7 @@ impl Vulkan {
             image_resolution: RefCell::new(None),
             frame_image: RefCell::new(None),
             frame_image_memory: RefCell::new(None),
+            frame_image_fd: RefCell::new(None),
         })
     }
 
@@ -207,14 +210,8 @@ impl Vulkan {
             .borrow()
             .ok_or("Unable to borrow the Vulkan image")?;
 
-        let (src_access_mask, src_stage_mask) = if self.frame_image.borrow().is_none() {
+        if self.frame_image.borrow().is_none() {
             self.init_frame_image(frame)?;
-            (
-                vk::AccessFlags::default(),
-                vk::PipelineStageFlags::TOP_OF_PIPE,
-            )
-        } else {
-            (vk::AccessFlags::HOST_WRITE, vk::PipelineStageFlags::HOST)
         };
 
         let frame_image = self
@@ -235,9 +232,9 @@ impl Vulkan {
             1,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            src_access_mask,
+            vk::AccessFlags::default(),
             vk::AccessFlags::TRANSFER_READ,
-            src_stage_mask,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
         );
 
         let (target_mip_level, mip_width, mip_height) =
@@ -267,6 +264,7 @@ impl Vulkan {
             self.device.unmap_memory(self.buffer_memory);
             self.device.destroy_image(frame_image, None);
             self.device.free_memory(frame_image_memory, None);
+            self.frame_image_fd.replace(None);
         }
 
         Ok(result)
@@ -439,6 +437,7 @@ impl Vulkan {
             .mip_levels(1)
             .array_layers(1)
             .tiling(vk::ImageTiling::LINEAR)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
             .samples(vk::SampleCountFlags::TYPE_1)
             .usage(vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -515,9 +514,11 @@ impl Vulkan {
             .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
 
         let fd = unsafe {
-            self.khr_device
-                .get_memory_fd(&memory_fd_info)
-                .map_err(anyhow::Error::msg)?
+            OwnedFd::from_raw_fd(
+                self.khr_device
+                    .get_memory_fd(&memory_fd_info)
+                    .map_err(anyhow::Error::msg)?,
+            )
         };
 
         self.frame_image.borrow_mut().replace(frame_image);
@@ -539,7 +540,10 @@ impl Vulkan {
         let stride = layout.row_pitch;
         let modifier: u64 = 0; // DRM_FORMAT_MOD_LINEAR
 
-        Ok((fd, offset, stride, modifier))
+        let raw_fd = fd.as_raw_fd();
+        self.frame_image_fd.replace(Some(fd));
+
+        Ok((raw_fd, offset, stride, modifier))
     }
 
     #[allow(clippy::too_many_arguments)]
