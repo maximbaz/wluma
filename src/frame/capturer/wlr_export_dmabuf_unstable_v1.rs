@@ -59,7 +59,8 @@ impl super::Capturer for Capturer {
             .expect("Unable to perform 2nd initial roundtrip");
 
         if self.output.is_none() {
-            panic!("Unable to find output that matches config '{output_name}'");
+            log::info!("Unable to find output that matches config '{output_name}', assuming it's disconnected.");
+            return;
         }
 
         if self.dmabuf_manager.is_none() {
