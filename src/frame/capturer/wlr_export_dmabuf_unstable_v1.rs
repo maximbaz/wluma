@@ -10,8 +10,6 @@ use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::Connection;
 use wayland_client::Dispatch;
 use wayland_client::QueueHandle;
-use wayland_client::WEnum;
-use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_frame_v1::CancelReason;
 use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_frame_v1::Event;
 use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_frame_v1::ZwlrExportDmabufFrameV1;
 use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_manager_v1;
@@ -24,6 +22,7 @@ const DELAY_FAILURE: Duration = Duration::from_millis(1000);
 pub struct Capturer {
     vulkan: Option<Vulkan>,
     output: Option<WlOutput>,
+    output_global_id: Option<u32>,
     dmabuf_manager: Option<ZwlrExportDmabufManagerV1>,
     pending_frame: Option<Object>,
     controller: Option<Controller>,
@@ -31,6 +30,7 @@ pub struct Capturer {
 
 #[derive(Clone)]
 struct GlobalsContext {
+    global_id: Option<u32>,
     desired_output: String,
 }
 
@@ -43,6 +43,7 @@ impl super::Capturer for Capturer {
         let qh = event_queue.handle();
 
         let ctx = GlobalsContext {
+            global_id: None,
             desired_output: output_name.to_string(),
         };
 
@@ -107,12 +108,17 @@ impl Dispatch<WlOutput, GlobalsContext> for Capturer {
             wl_output::Event::Description { description }
                 if description.contains(&ctx.desired_output) =>
             {
-                log::debug!(
-                    "Using output '{}' for config '{}'",
-                    description,
-                    ctx.desired_output,
-                );
-                state.output = Some(output.clone());
+                if state.output.is_none() {
+                    log::debug!(
+                        "Using output '{}' for config '{}'",
+                        description,
+                        ctx.desired_output,
+                    );
+                    state.output = Some(output.clone());
+                    state.output_global_id = ctx.global_id;
+                } else {
+                    log::error!("Cannot use output '{}' for config '{}' because another output was already matched with it, skipping this output.", description, ctx.desired_output);
+                }
             }
             _ => {}
         }
@@ -169,17 +175,8 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
                 frame.destroy();
                 state.pending_frame = None;
 
-                match reason {
-                    WEnum::Value(CancelReason::Permanent) => {
-                        panic!("Frame was cancelled due to a permanent error. If you just disconnected screen, this is not implemented yet.");
-                    }
-                    _ => {
-                        log::error!(
-                            "Frame was cancelled due to a temporary error, will try again."
-                        );
-                        thread::sleep(DELAY_FAILURE);
-                    }
-                }
+                log::error!("Frame was cancelled, reason: {reason:?}");
+                thread::sleep(DELAY_FAILURE);
             }
 
             _ => unreachable!(),
@@ -196,27 +193,41 @@ impl Dispatch<WlRegistry, GlobalsContext> for Capturer {
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        if let wl_registry::Event::Global {
-            name,
-            interface,
-            version,
-            ..
-        } = event
-        {
-            match &interface[..] {
-                "wl_output" => {
-                    registry.bind::<WlOutput, _, _>(name, version, qh, ctx.clone());
+        match event {
+            wl_registry::Event::Global {
+                name,
+                interface,
+                version,
+                ..
+            } => {
+                match &interface[..] {
+                    "wl_output" => {
+                        registry.bind::<WlOutput, _, _>(
+                            name,
+                            version,
+                            qh,
+                            GlobalsContext {
+                                global_id: Some(name),
+                                desired_output: ctx.desired_output.clone(),
+                            },
+                        );
+                    }
+                    "zwlr_export_dmabuf_manager_v1" => {
+                        state.dmabuf_manager = Some(
+                            registry.bind::<ZwlrExportDmabufManagerV1, _, _>(name, version, qh, ()),
+                        );
+                    }
+                    _ => {}
+                };
+            }
+            wl_registry::Event::GlobalRemove { name } => {
+                if Some(name) == state.output_global_id {
+                    log::info!("Disconnected screen {}", ctx.desired_output);
+                    state.output = None;
+                    state.output_global_id = None;
                 }
-                "zwlr_export_dmabuf_manager_v1" => {
-                    state.dmabuf_manager = Some(registry.bind::<ZwlrExportDmabufManagerV1, _, _>(
-                        name,
-                        version,
-                        qh,
-                        (),
-                    ));
-                }
-                _ => {}
-            };
+            }
+            _ => {}
         }
     }
 }
