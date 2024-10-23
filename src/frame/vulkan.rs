@@ -1,5 +1,6 @@
 use crate::frame::compute_perceived_lightness_percent;
 use crate::frame::object::Object;
+use ash::khr::external_memory_fd::Device as KHRDevice;
 use ash::{vk, Device, Entry, Instance};
 use std::cell::RefCell;
 use std::default::Default;
@@ -18,6 +19,7 @@ pub struct Vulkan {
     _entry: Entry, // must keep reference to prevent early memory release
     instance: Instance,
     device: Device,
+    khr_device: KHRDevice,
     buffer: vk::Buffer,
     buffer_memory: vk::DeviceMemory,
     command_pool: vk::CommandPool,
@@ -27,6 +29,8 @@ pub struct Vulkan {
     image: RefCell<Option<vk::Image>>,
     image_memory: RefCell<Option<vk::DeviceMemory>>,
     image_resolution: RefCell<Option<(u32, u32)>>,
+    frame_image: RefCell<Option<vk::Image>>,
+    frame_image_memory: RefCell<Option<vk::DeviceMemory>>,
 }
 
 impl Vulkan {
@@ -86,6 +90,8 @@ impl Vulkan {
                 .create_device(physical_device, &device_create_info, None)
                 .map_err(anyhow::Error::msg)?
         };
+
+        let khr_device = KHRDevice::new(&instance, &device);
 
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
 
@@ -162,6 +168,7 @@ impl Vulkan {
             _entry: entry,
             instance,
             device,
+            khr_device,
             buffer,
             buffer_memory,
             command_pool,
@@ -171,6 +178,8 @@ impl Vulkan {
             image: RefCell::new(None),
             image_memory: RefCell::new(None),
             image_resolution: RefCell::new(None),
+            frame_image: RefCell::new(None),
+            frame_image_memory: RefCell::new(None),
         })
     }
 
@@ -198,9 +207,38 @@ impl Vulkan {
             .borrow()
             .ok_or("Unable to borrow the Vulkan image")?;
 
-        let (frame_image, frame_image_memory) = self.init_frame_image(frame)?;
+        let (src_access_mask, src_stage_mask) = if self.frame_image.borrow().is_none() {
+            self.init_frame_image(frame)?;
+            (
+                vk::AccessFlags::default(),
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+            )
+        } else {
+            (vk::AccessFlags::HOST_WRITE, vk::PipelineStageFlags::HOST)
+        };
+
+        let frame_image = self
+            .frame_image
+            .take()
+            .ok_or("Unable to borrow the Vulkan frame image")?;
+
+        let frame_image_memory = self
+            .frame_image_memory
+            .take()
+            .ok_or("Unable to borrow the Vulkan frame image memory")?;
 
         self.begin_commands()?;
+
+        self.add_barrier(
+            &frame_image,
+            0,
+            1,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            src_access_mask,
+            vk::AccessFlags::TRANSFER_READ,
+            src_stage_mask,
+        );
 
         let (target_mip_level, mip_width, mip_height) =
             self.generate_mipmaps(frame, &frame_image, &image);
@@ -287,10 +325,7 @@ impl Vulkan {
         Ok(())
     }
 
-    fn init_frame_image(
-        &self,
-        frame: &Object,
-    ) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
+    fn init_frame_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
         // External memory info
         let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
@@ -381,7 +416,133 @@ impl Vulkan {
                 .map_err(anyhow::Error::msg)?;
         };
 
-        Ok((frame_image, frame_image_memory))
+        self.frame_image.borrow_mut().replace(frame_image);
+        self.frame_image_memory
+            .borrow_mut()
+            .replace(frame_image_memory);
+        Ok(())
+    }
+
+    pub fn init_exportable_frame_image(
+        &self,
+        frame: &Object,
+    ) -> Result<(i32, u64, u64, u64), Box<dyn Error>> {
+        let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+
+        let frame_image_create_info = vk::ImageCreateInfo::default()
+            .push_next(&mut frame_image_memory_info)
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(vk::Format::B8G8R8A8_UNORM)
+            .extent(vk::Extent3D {
+                width: frame.width,
+                height: frame.height,
+                depth: 1,
+            })
+            .mip_levels(1)
+            .array_layers(1)
+            .tiling(vk::ImageTiling::LINEAR)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .usage(vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        let frame_image = unsafe {
+            self.device
+                .create_image(&frame_image_create_info, None)
+                .map_err(anyhow::Error::msg)?
+        };
+
+        // Memory requirements info
+        let frame_image_memory_req_info =
+            vk::ImageMemoryRequirementsInfo2::default().image(frame_image);
+
+        // Prepare the structures to get memory requirements into, then get the memory requirements
+        let mut frame_image_mem_dedicated_req = vk::MemoryDedicatedRequirements::default();
+
+        let mut frame_image_mem_req =
+            vk::MemoryRequirements2::default().push_next(&mut frame_image_mem_dedicated_req);
+
+        unsafe {
+            self.device.get_image_memory_requirements2(
+                &frame_image_memory_req_info,
+                &mut frame_image_mem_req,
+            );
+        }
+
+        // Bit i in memory_type_bits is set if the ith memory type in the
+        // VkPhysicalDeviceMemoryProperties structure is supported for the image memory.
+        // We just use the first type supported (from least significant bit's side)
+
+        // Find suitable memory type index
+        let memory_type_index = frame_image_mem_req
+            .memory_requirements
+            .memory_type_bits
+            .trailing_zeros();
+
+        // Specify that the memory can be exported
+        let mut frame_import_memory_info = vk::ExportMemoryAllocateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+
+        // dedicated allocation info
+        let mut frame_image_memory_dedicated_info =
+            vk::MemoryDedicatedAllocateInfo::default().image(frame_image);
+
+        // Allocate memory
+        let mut frame_image_allocate_info = vk::MemoryAllocateInfo::default()
+            .push_next(&mut frame_import_memory_info)
+            .allocation_size(frame_image_mem_req.memory_requirements.size)
+            .memory_type_index(memory_type_index);
+
+        if frame_image_mem_dedicated_req.prefers_dedicated_allocation == vk::TRUE {
+            frame_image_allocate_info =
+                frame_image_allocate_info.push_next(&mut frame_image_memory_dedicated_info);
+        }
+
+        // Allocate memory and bind it to the image
+        let frame_image_memory = unsafe {
+            self.device
+                .allocate_memory(&frame_image_allocate_info, None)
+                .map_err(anyhow::Error::msg)?
+        };
+
+        // Bind memory to the image
+        unsafe {
+            self.device
+                .bind_image_memory(frame_image, frame_image_memory, 0)
+                .map_err(anyhow::Error::msg)?;
+        }
+
+        // Get the file descriptor
+        let memory_fd_info = vk::MemoryGetFdInfoKHR::default()
+            .memory(frame_image_memory)
+            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+
+        let fd = unsafe {
+            self.khr_device
+                .get_memory_fd(&memory_fd_info)
+                .map_err(anyhow::Error::msg)?
+        };
+
+        self.frame_image.borrow_mut().replace(frame_image);
+        self.frame_image_memory
+            .borrow_mut()
+            .replace(frame_image_memory);
+
+        let subresource = vk::ImageSubresource::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .array_layer(0);
+
+        let layout = unsafe {
+            self.device
+                .get_image_subresource_layout(frame_image, subresource)
+        };
+
+        let offset = layout.offset;
+        let stride = layout.row_pitch;
+        let modifier: u64 = 0; // DRM_FORMAT_MOD_LINEAR
+
+        Ok((fd, offset, stride, modifier))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -485,17 +646,6 @@ impl Vulkan {
         image: &vk::Image,
     ) -> (u32, u32, u32) {
         let (mut mip_width, mut mip_height, mip_levels) = image_dimensions(frame);
-
-        self.add_barrier(
-            frame_image,
-            0,
-            1,
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::AccessFlags::default(),
-            vk::AccessFlags::TRANSFER_READ,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-        );
 
         self.add_barrier(
             image,

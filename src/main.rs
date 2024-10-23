@@ -69,10 +69,9 @@ fn main() {
                         .spawn(move || {
                             let mut frame_capturer: Box<dyn frame::capturer::Capturer> =
                                 match output_capturer {
-                                    config::Capturer::WlrExportDmabufUnstableV1 => Box::<
-                                        frame::capturer::wlr_export_dmabuf_unstable_v1::Capturer,
-                                    >::default(
-                                    ),
+                                    config::Capturer::Wayland(protocol) => {
+                                        Box::new(frame::capturer::wayland::Capturer::new(protocol))
+                                    }
                                     config::Capturer::None => {
                                         Box::<frame::capturer::none::Capturer>::default()
                                     }

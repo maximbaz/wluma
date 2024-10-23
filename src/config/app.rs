@@ -1,8 +1,15 @@
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum WaylandProtocol {
+    Any,
+    WlrScreencopyUnstableV1,
+    WlrExportDmabufUnstableV1,
+}
+
 #[derive(Debug, Clone)]
 pub enum Capturer {
-    WlrExportDmabufUnstableV1,
+    Wayland(WaylandProtocol),
     None,
 }
 

@@ -4,9 +4,11 @@ use std::collections::HashMap;
 #[derive(Deserialize, Debug)]
 pub enum Capturer {
     #[serde(rename = "wlroots")]
-    DeprecatedWlrExportDmabufUnstableV1,
+    Wlroots,
     #[serde(rename = "wlr-export-dmabuf-unstable-v1")]
     WlrExportDmabufUnstableV1,
+    #[serde(rename = "wlr-screencopy-unstable-v1")]
+    WlrScreencopyUnstableV1,
     #[serde(rename = "none")]
     None,
 }

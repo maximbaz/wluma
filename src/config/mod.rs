@@ -35,12 +35,14 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     min_brightness: 1,
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
-                        file::Capturer::WlrExportDmabufUnstableV1 => {
-                            app::Capturer::WlrExportDmabufUnstableV1
+                        file::Capturer::Wlroots => {
+                            app::Capturer::Wayland(app::WaylandProtocol::Any)
                         }
-                        file::Capturer::DeprecatedWlrExportDmabufUnstableV1 => {
-                            log::warn!("capturer=\"wlroots\" is deprecated by capturer=\"wlr-export-dmabuf-unstable-v1\"");
-                            app::Capturer::WlrExportDmabufUnstableV1
+                        file::Capturer::WlrScreencopyUnstableV1 => {
+                            app::Capturer::Wayland(app::WaylandProtocol::WlrScreencopyUnstableV1)
+                        }
+                        file::Capturer::WlrExportDmabufUnstableV1 => {
+                            app::Capturer::Wayland(app::WaylandProtocol::WlrExportDmabufUnstableV1)
                         }
                     },
                 })
@@ -51,12 +53,14 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     min_brightness: 1,
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
-                        file::Capturer::WlrExportDmabufUnstableV1 => {
-                            app::Capturer::WlrExportDmabufUnstableV1
+                        file::Capturer::Wlroots => {
+                            app::Capturer::Wayland(app::WaylandProtocol::Any)
                         }
-                        file::Capturer::DeprecatedWlrExportDmabufUnstableV1 => {
-                            log::warn!("capturer=\"wlroots\" is deprecated by capturer=\"wlr-export-dmabuf-unstable-v1\"");
-                            app::Capturer::WlrExportDmabufUnstableV1
+                        file::Capturer::WlrScreencopyUnstableV1 => {
+                            app::Capturer::Wayland(app::WaylandProtocol::WlrScreencopyUnstableV1)
+                        }
+                        file::Capturer::WlrExportDmabufUnstableV1 => {
+                            app::Capturer::Wayland(app::WaylandProtocol::WlrExportDmabufUnstableV1)
                         }
                     },
                 })
