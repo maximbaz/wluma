@@ -265,9 +265,6 @@ impl Vulkan {
 
         unsafe {
             self.device.unmap_memory(self.buffer_memory);
-            self.device
-                .reset_fences(&[self.fence])
-                .map_err(anyhow::Error::msg)?;
             self.device.destroy_image(frame_image, None);
             self.device.free_memory(frame_image_memory, None);
         }
@@ -772,6 +769,11 @@ impl Vulkan {
             // Wait for the fences
             self.device
                 .wait_for_fences(&[self.fence], true, FENCES_TIMEOUT_NS)
+                .map_err(anyhow::Error::msg)?;
+
+            // Reset fences
+            self.device
+                .reset_fences(&[self.fence])
                 .map_err(anyhow::Error::msg)?;
         }
 
