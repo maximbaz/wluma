@@ -420,6 +420,8 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                 );
 
                 frame.copy(&buffer);
+                buffer.destroy();
+
                 state.pending_frame = Some(pending_frame);
             }
 
