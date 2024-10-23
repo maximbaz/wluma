@@ -58,11 +58,6 @@ impl super::Capturer for Capturer {
             .roundtrip(self)
             .expect("Unable to perform 2nd initial roundtrip");
 
-        if self.output.is_none() {
-            log::info!("Unable to find output that matches config '{output_name}', assuming it's disconnected.");
-            return;
-        }
-
         if self.dmabuf_manager.is_none() {
             panic!("Unable to initialize ZwlrExportDmabufManagerV1 instance");
         }
@@ -71,12 +66,14 @@ impl super::Capturer for Capturer {
         self.controller = Some(controller);
 
         loop {
-            self.dmabuf_manager.as_mut().unwrap().capture_output(
-                0,
-                self.output.as_mut().unwrap(),
-                &event_queue.handle(),
-                (),
-            );
+            if let Some(output) = self.output.as_mut() {
+                self.dmabuf_manager.as_mut().unwrap().capture_output(
+                    0,
+                    output,
+                    &event_queue.handle(),
+                    (),
+                );
+            }
 
             event_queue
                 .blocking_dispatch(self)
