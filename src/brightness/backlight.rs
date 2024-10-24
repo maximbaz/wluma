@@ -37,6 +37,7 @@ impl Backlight {
                 .write(true)
                 .open(&brightness_path)?;
 
+            log::trace!("Using direct write on {} to change brightness value", path);
             (file, None)
         } else {
             let file = File::open(&brightness_path)?;
@@ -62,6 +63,7 @@ impl Backlight {
                 })
             });
 
+            log::trace!("Using DBUS for {} to change brightness value", path);
             (file, connection)
         };
 
