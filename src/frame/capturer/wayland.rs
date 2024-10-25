@@ -453,9 +453,6 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
             }
 
             zwlr_screencopy_frame_v1::Event::Ready { .. } => {
-                // The frame is sadly not always ready at this stage, and I couldn't find how to make Vulkan synchronize with the compositor ☹️
-                // thread::sleep(Duration::from_millis(10));
-
                 let luma = state
                     .vulkan
                     .as_ref()
