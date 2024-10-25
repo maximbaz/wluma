@@ -475,12 +475,12 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
             }
 
             zwlr_screencopy_frame_v1::Event::Failed {} => {
+                log::error!("Frame copy failed");
                 frame.destroy();
                 if let Some(buffer) = state.wl_buffer.take() {
                     buffer.destroy()
                 }
 
-                log::error!("Frame copy failed");
                 thread::sleep(DELAY_FAILURE);
                 state.is_processing_frame = false;
             }
