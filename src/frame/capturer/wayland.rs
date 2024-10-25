@@ -5,6 +5,7 @@ use crate::predictor::Controller;
 use std::os::fd::BorrowedFd;
 use std::thread;
 use std::time::Duration;
+use wayland_client::event_created_child;
 use wayland_client::protocol::wl_buffer;
 use wayland_client::protocol::wl_buffer::WlBuffer;
 use wayland_client::protocol::wl_output;
@@ -37,12 +38,16 @@ pub struct Capturer {
     vulkan: Option<Vulkan>,
     output: Option<WlOutput>,
     output_global_id: Option<u32>,
-    screencopy_manager: Option<ZwlrScreencopyManagerV1>,
-    dmabuf: Option<ZwpLinuxDmabufV1>,
-    wlbuffer: Option<WlBuffer>,
-    dmabuf_manager: Option<ZwlrExportDmabufManagerV1>,
     pending_frame: Option<Object>,
     controller: Option<Controller>,
+    // wlr-screencopy-unstable-v1
+    screencopy_manager: Option<ZwlrScreencopyManagerV1>,
+    dmabuf: Option<ZwpLinuxDmabufV1>,
+    screencopy_frame: Option<ZwlrScreencopyFrameV1>,
+    wl_buffer: Option<WlBuffer>,
+    dmabuf_params: Option<ZwpLinuxBufferParamsV1>,
+    // wlr-export-dmabuf-unstable-v1
+    dmabuf_manager: Option<ZwlrExportDmabufManagerV1>,
 }
 
 #[derive(Clone)]
@@ -61,9 +66,11 @@ impl Capturer {
             output_global_id: None,
             screencopy_manager: None,
             dmabuf: None,
-            wlbuffer: None,
+            screencopy_frame: None,
+            wl_buffer: None,
             dmabuf_manager: None,
             pending_frame: None,
+            dmabuf_params: None,
             controller: None,
         }
     }
@@ -301,13 +308,12 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
                     .vulkan
                     .as_ref()
                     .unwrap()
-                    .luma_percent(state.pending_frame.as_ref().unwrap())
+                    .luma_percent(&state.pending_frame.take().unwrap())
                     .expect("Unable to compute luma percent");
 
                 state.controller.as_mut().unwrap().adjust(luma);
 
                 frame.destroy();
-                state.pending_frame = None;
 
                 thread::sleep(DELAY_SUCCESS);
                 state.is_processing_frame = false;
@@ -315,7 +321,6 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
 
             zwlr_export_dmabuf_frame_v1::Event::Cancel { reason } => {
                 frame.destroy();
-                state.pending_frame = None;
 
                 log::error!("Frame was cancelled, reason: {reason:?}");
                 thread::sleep(DELAY_FAILURE);
@@ -342,14 +347,42 @@ impl Dispatch<ZwpLinuxDmabufV1, ()> for Capturer {
 }
 
 impl Dispatch<ZwpLinuxBufferParamsV1, ()> for Capturer {
+    event_created_child!(Capturer, ZwpLinuxBufferParamsV1, [
+        0 => (WlBuffer, ()),
+    ]);
+
     fn event(
-        _: &mut Self,
+        state: &mut Self,
         _: &ZwpLinuxBufferParamsV1,
-        _: zwp_linux_buffer_params_v1::Event,
+        event: zwp_linux_buffer_params_v1::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        match event {
+            zwp_linux_buffer_params_v1::Event::Created { buffer } => {
+                if let Some(screencopy_frame) = state.screencopy_frame.take() {
+                    screencopy_frame.copy(&buffer);
+                }
+                state.wl_buffer = Some(buffer);
+                if let Some(dmabuf_params) = state.dmabuf_params.take() {
+                    dmabuf_params.destroy();
+                }
+            }
+            zwp_linux_buffer_params_v1::Event::Failed => {
+                log::error!("Failed creating WlBuffer");
+                if let Some(screencopy_frame) = state.screencopy_frame.take() {
+                    screencopy_frame.destroy();
+                }
+                if let Some(dmabuf_params) = state.dmabuf_params.take() {
+                    dmabuf_params.destroy();
+                }
+
+                thread::sleep(DELAY_FAILURE);
+                state.is_processing_frame = false;
+            }
+            _ => {}
+        }
     }
 }
 
@@ -393,7 +426,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                 format,
             } => {
                 let pending_frame = Object::new(width, height, 1, format);
-                let dmabuf = state.dmabuf.as_ref().unwrap().create_params(qh, ());
+                let dmabuf_params = state.dmabuf.as_ref().unwrap().create_params(qh, ());
                 let (fd, offset, stride, modifier) = state
                     .vulkan
                     .as_ref()
@@ -403,7 +436,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
 
                 let fd = unsafe { BorrowedFd::borrow_raw(fd) };
 
-                dmabuf.add(
+                dmabuf_params.add(
                     fd,
                     0,
                     offset as u32,
@@ -412,19 +445,11 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                     (modifier & 0xFFFFFFFF) as u32,
                 );
 
-                let buffer = dmabuf.create_immed(
-                    width as i32,
-                    height as i32,
-                    format,
-                    Flags::empty(),
-                    qh,
-                    (),
-                );
+                dmabuf_params.create(width as i32, height as i32, format, Flags::empty());
 
-                frame.copy(&buffer);
-
-                state.wlbuffer = Some(buffer);
+                state.screencopy_frame = Some(frame.clone());
                 state.pending_frame = Some(pending_frame);
+                state.dmabuf_params = Some(dmabuf_params);
             }
 
             zwlr_screencopy_frame_v1::Event::Ready { .. } => {
@@ -435,14 +460,13 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                     .vulkan
                     .as_ref()
                     .unwrap()
-                    .luma_percent(state.pending_frame.as_ref().unwrap())
+                    .luma_percent(&state.pending_frame.take().unwrap())
                     .expect("Unable to compute luma percent");
 
                 state.controller.as_mut().unwrap().adjust(luma);
 
                 frame.destroy();
-                state.pending_frame = None;
-                if let Some(buffer) = state.wlbuffer.take() {
+                if let Some(buffer) = state.wl_buffer.take() {
                     buffer.destroy()
                 }
 
@@ -452,8 +476,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
 
             zwlr_screencopy_frame_v1::Event::Failed {} => {
                 frame.destroy();
-                state.pending_frame = None;
-                if let Some(buffer) = state.wlbuffer.take() {
+                if let Some(buffer) = state.wl_buffer.take() {
                     buffer.destroy()
                 }
 
