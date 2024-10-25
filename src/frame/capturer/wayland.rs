@@ -99,22 +99,22 @@ impl super::Capturer for Capturer {
                 if self.screencopy_manager.is_none() {
                     panic!("Requested to use wlr-screencopy-unstable-v1 protocol, but it's not available");
                 }
-                log::trace!("Using wlr-screencopy-unstable-v1 protocol to request frames");
+                log::debug!("Using wlr-screencopy-unstable-v1 protocol to request frames");
                 WaylandProtocol::WlrScreencopyUnstableV1
             }
             WaylandProtocol::WlrExportDmabufUnstableV1 => {
                 if self.dmabuf_manager.is_none() {
                     panic!("Requested to use wlr-export-dmabuf-unstable-v1 protocol, but it's not available");
                 }
-                log::trace!("Using wlr-export-dmabuf-unstable-v1 protocol to request frames");
+                log::debug!("Using wlr-export-dmabuf-unstable-v1 protocol to request frames");
                 WaylandProtocol::WlrExportDmabufUnstableV1
             }
             WaylandProtocol::Any => {
                 if self.screencopy_manager.is_some() {
-                    log::trace!("Using wlr-screencopy-unstable-v1 protocol to request frames");
+                    log::debug!("Using wlr-screencopy-unstable-v1 protocol to request frames");
                     WaylandProtocol::WlrScreencopyUnstableV1
                 } else if self.dmabuf_manager.is_some() {
-                    log::trace!("Using wlr-export-dmabuf-unstable-v1 protocol to request frames");
+                    log::debug!("Using wlr-export-dmabuf-unstable-v1 protocol to request frames");
                     WaylandProtocol::WlrExportDmabufUnstableV1
                 } else {
                     panic!("No supported Wayland protocols found to capture screen contents");
@@ -222,7 +222,7 @@ impl Dispatch<WlRegistry, GlobalsContext> for Capturer {
                         );
                     }
                     "zwlr_export_dmabuf_manager_v1" => {
-                        log::trace!("Detected support for wlr-export-dmabuf-unstable-v1 protocol");
+                        log::debug!("Detected support for wlr-export-dmabuf-unstable-v1 protocol");
                         state.dmabuf_manager = Some(
                             registry.bind::<ZwlrExportDmabufManagerV1, _, _>(name, version, qh, ()),
                         );
@@ -232,7 +232,7 @@ impl Dispatch<WlRegistry, GlobalsContext> for Capturer {
                             Some(registry.bind::<ZwpLinuxDmabufV1, _, _>(name, version, qh, ()));
                     }
                     "zwlr_screencopy_manager_v1" => {
-                        log::trace!("Detected support for wlr-screencopy-unstable-v1 protocol");
+                        log::debug!("Detected support for wlr-screencopy-unstable-v1 protocol");
                         state.screencopy_manager = Some(
                             registry.bind::<ZwlrScreencopyManagerV1, _, _>(name, version, qh, ()),
                         );
@@ -242,7 +242,7 @@ impl Dispatch<WlRegistry, GlobalsContext> for Capturer {
             }
             wl_registry::Event::GlobalRemove { name } => {
                 if Some(name) == state.output_global_id {
-                    log::info!("Disconnected screen {}", ctx.desired_output);
+                    log::debug!("Disconnected screen {}", ctx.desired_output);
                     state.output = None;
                     state.output_global_id = None;
                 }
