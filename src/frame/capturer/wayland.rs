@@ -14,6 +14,7 @@ use wayland_client::protocol::wl_registry;
 use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::Connection;
 use wayland_client::Dispatch;
+use wayland_client::Proxy;
 use wayland_client::QueueHandle;
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1;
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1::Flags;
@@ -106,28 +107,28 @@ impl super::Capturer for Capturer {
                 if self.screencopy_manager.is_none() {
                     panic!("Requested to use wlr-screencopy-unstable-v1 protocol, but it's not available");
                 }
-                log::debug!("Using wlr-screencopy-unstable-v1 protocol to request frames");
+                if self.dmabuf.is_none() {
+                    panic!("Requested to use wlr-screencopy-unstable-v1 protocol, but a required linux-dmabuf-v1 protocol it's not available");
+                }
                 WaylandProtocol::WlrScreencopyUnstableV1
             }
             WaylandProtocol::WlrExportDmabufUnstableV1 => {
                 if self.dmabuf_manager.is_none() {
                     panic!("Requested to use wlr-export-dmabuf-unstable-v1 protocol, but it's not available");
                 }
-                log::debug!("Using wlr-export-dmabuf-unstable-v1 protocol to request frames");
                 WaylandProtocol::WlrExportDmabufUnstableV1
             }
             WaylandProtocol::Any => {
-                if self.screencopy_manager.is_some() {
-                    log::debug!("Using wlr-screencopy-unstable-v1 protocol to request frames");
+                if self.screencopy_manager.is_some() && self.dmabuf.is_some() {
                     WaylandProtocol::WlrScreencopyUnstableV1
                 } else if self.dmabuf_manager.is_some() {
-                    log::debug!("Using wlr-export-dmabuf-unstable-v1 protocol to request frames");
                     WaylandProtocol::WlrExportDmabufUnstableV1
                 } else {
                     panic!("No supported Wayland protocols found to capture screen contents");
                 }
             }
         };
+        log::debug!("Using {protocol_to_use} protocol to request frames");
 
         self.vulkan = Some(Vulkan::new().expect("Unable to initialize Vulkan"));
         self.controller = Some(controller);
@@ -214,10 +215,9 @@ impl Dispatch<WlRegistry, GlobalsContext> for Capturer {
                 name,
                 interface,
                 version,
-                ..
             } => {
                 match &interface[..] {
-                    "wl_output" => {
+                    _ if interface == WlOutput::interface().name => {
                         registry.bind::<WlOutput, _, _>(
                             name,
                             version,
@@ -228,17 +228,18 @@ impl Dispatch<WlRegistry, GlobalsContext> for Capturer {
                             },
                         );
                     }
-                    "zwlr_export_dmabuf_manager_v1" => {
+                    _ if interface == ZwlrExportDmabufManagerV1::interface().name => {
                         log::debug!("Detected support for wlr-export-dmabuf-unstable-v1 protocol");
                         state.dmabuf_manager = Some(
                             registry.bind::<ZwlrExportDmabufManagerV1, _, _>(name, version, qh, ()),
                         );
                     }
-                    "zwp_linux_dmabuf_v1" => {
+                    _ if interface == ZwpLinuxDmabufV1::interface().name => {
+                        log::debug!("Detected support for linux-dmabuf-v1 protocol");
                         state.dmabuf =
                             Some(registry.bind::<ZwpLinuxDmabufV1, _, _>(name, version, qh, ()));
                     }
-                    "zwlr_screencopy_manager_v1" => {
+                    _ if interface == ZwlrScreencopyManagerV1::interface().name => {
                         log::debug!("Detected support for wlr-screencopy-unstable-v1 protocol");
                         state.screencopy_manager = Some(
                             registry.bind::<ZwlrScreencopyManagerV1, _, _>(name, version, qh, ()),
@@ -348,7 +349,7 @@ impl Dispatch<ZwpLinuxDmabufV1, ()> for Capturer {
 
 impl Dispatch<ZwpLinuxBufferParamsV1, ()> for Capturer {
     event_created_child!(Capturer, ZwpLinuxBufferParamsV1, [
-        0 => (WlBuffer, ()),
+        wl_buffer::EVT_RELEASE_OPCODE => (WlBuffer, ()),
     ]);
 
     fn event(
