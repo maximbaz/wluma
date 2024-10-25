@@ -260,6 +260,10 @@ impl Vulkan {
 
         let result = compute_perceived_lightness_percent(rgbas, true, pixels);
 
+        if result == 0 {
+            log::warn!("Perceived lightness is 0, this could be a bug I'm trying to catch. If you see this value while your screen is not pitch-black, please open a GitHub issue (or use an already opened one) and share your logs, ideally with RUST_LOG=trace and this message.");
+        }
+
         unsafe {
             self.device.unmap_memory(self.buffer_memory);
             self.device.destroy_image(frame_image, None);
