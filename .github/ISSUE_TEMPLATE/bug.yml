@@ -8,7 +8,7 @@ body:
         ### Thanks for your time and effort in making the project better!
   - type: markdown
     attributes:
-      value: Is your issue related to `wlroots`? Remember that you must change `capturer` to `none` in the config, if you are not using wlroots-based compositor (such as `sway`).
+      value: Is your issue related to screen capturing? Remember that your compositor must support one of the protocols listed in README, otherwise you must change `capturer` to `none` in the config.
   - type: textarea
     id: repro-steps
     attributes:

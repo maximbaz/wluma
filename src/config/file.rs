@@ -5,6 +5,8 @@ use std::collections::HashMap;
 pub enum Capturer {
     #[serde(rename = "wlroots")]
     Wlroots,
+    #[serde(rename = "wayland")]
+    Wayland,
     #[serde(rename = "wlr-export-dmabuf-unstable-v1")]
     WlrExportDmabufUnstableV1,
     #[serde(rename = "wlr-screencopy-unstable-v1")]

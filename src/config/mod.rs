@@ -36,6 +36,12 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
                         file::Capturer::Wlroots => {
+                            log::warn!(
+                                "Config value capturer=\"wlroots\" is deprecated, use capturer=\"wayland\" instead"
+                            );
+                            app::Capturer::Wayland(app::WaylandProtocol::Any)
+                        }
+                        file::Capturer::Wayland => {
                             app::Capturer::Wayland(app::WaylandProtocol::Any)
                         }
                         file::Capturer::WlrScreencopyUnstableV1 => {
@@ -54,6 +60,12 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     capturer: match o.capturer {
                         file::Capturer::None => app::Capturer::None,
                         file::Capturer::Wlroots => {
+                            log::warn!(
+                                "Config value capturer=\"wlroots\" is deprecated, use capturer=\"wayland\" instead"
+                            );
+                            app::Capturer::Wayland(app::WaylandProtocol::Any)
+                        }
+                        file::Capturer::Wayland => {
                             app::Capturer::Wayland(app::WaylandProtocol::Any)
                         }
                         file::Capturer::WlrScreencopyUnstableV1 => {

@@ -1,6 +1,18 @@
 # wluma
 
-A tool for wlroots-based compositors that automatically adjusts screen brightness based on the screen contents and amount of ambient light around you.
+A tool for Wayland compositors to automatically adjust screen brightness based on the screen contents and amount of ambient light around you.
+
+## Supported screen capture protocols
+
+With default config, `wluma` will automatically detect which protocols are supported, and pick the most appropriate one. See "configuration" section below for how to force a specific protocol.
+
+The list of available protocols:
+
+- `wlr-screencopy-unstable-v1` - supported by any `wlroots`-based compositors (e.g. `sway`), as well as Hyprland.
+  - requires `linux-dmabuf-v1` protocol to be supported as well.
+- `wlr-export-dmabuf-unstable-v1` - supported by any `wlroots`-based compositors (e.g. `sway`).
+
+Subscribe for [#121](https://github.com/maximbaz/wluma/issues/121) to see when the new `ext-image-capture-source-v1` protocol will land, which will potentially support any modern Wayland compositor once they implement the support as well.
 
 ## Idea
 
@@ -18,7 +30,7 @@ Simply launch `wluma` and continue adjusting your screen brightness as you usual
 
 ## Performance
 
-The app has minimal impact on system resources and battery life even though it is able to monitor screen contents several times a second. This is achieved by using [export-dmabuf](https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/blob/master/unstable/wlr-export-dmabuf-unstable-v1.xml) Wayland protocol to get access to the screen contents and doing computations entirely on GPU using Vulkan API.
+The app has minimal impact on system resources and battery life even though it is able to monitor screen contents several times a second. This is achieved by using Wayland protocols to get access to the screen contents and doing computations entirely on GPU using Vulkan API.
 
 ## Installation
 
@@ -31,7 +43,6 @@ Use one of the available packages and methods below:
 - Alpine Linux: [wluma](https://pkgs.alpinelinux.org/packages?name=wluma) (from Alpine Edge; it will be available in stable branches since Alpine v3.16)
 - Arch Linux: [wluma](https://aur.archlinux.org/packages/wluma/) or [wluma-git](https://aur.archlinux.org/packages/wluma-git/)
 - NixOS: [wluma](https://search.nixos.org/packages?channel=unstable&show=wluma&from=0&size=50&sort=relevance&type=packages&query=wluma)
-- Pre-compiled [Github release artifact](https://github.com/maximbaz/wluma/releases) (it is linked against Vulkan ICD loader, which you must install, and the latest available `glibc`, which might not work on your machine if your version is too old)
 - Build the app yourself using the instructions below and install it via `sudo make install`
 
 ## Build
@@ -68,7 +79,7 @@ Each output is identified by compositor using model, manufacturer and serial num
 
 The `name` field in the output config will be matched as a substring, so you are free to put simply `eDP-1`, or a serial number (if you have two identical external screens). It is your responsibility to make sure that the values you use match **uniquely** to one output only.
 
-The `capturer` field will determine how screen contents will be captured. Currently supported values are `wlroots` (works only on wlroots-based Wayland compositors) and `none` (ignores screen contents and predicts brightness only based on ALS).
+The `capturer` field will determine how screen contents will be captured. Currently supported values are `wayland` (works only on Wayland compositors that support protocols listed in the top) and `none` (ignores screen contents and predicts brightness only based on ALS). The value `wayland` will automatically choose the most appropriate protocol, but if you want to force a specific one, you can use `wlr-screencopy-unstable-v1` or `wlr-export-dmabuf-unstable-v1` as the value.
 
 _Tip:_ run `wluma` with `RUST_LOG=debug` to see how your outputs are being identified, so that you can choose an appropriate `name` configuration value.
 
@@ -86,7 +97,7 @@ For more complex selectors, see [env_logger's documentation](https://docs.rs/env
 
 Help is wanted and much appreciated! If you want to implement some of these, feel free to open an issue and I'll provide more details and try to help you along the way.
 
-- Support for frames with custom DRM modifiers (e.g. multi-planar frames) is currently not implemented. This was recently [implemented in mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/1466) and can finally be added to `wluma`. Until then, a workaround is to export `WLR_DRM_NO_MODIFIERS=1` before launching your wlroots-based compositor.
+- Support for frames with custom DRM modifiers (e.g. multi-planar frames) is currently not implemented. This was [implemented in mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/1466) and can finally be added to `wluma`. Until then, a workaround is to export `WLR_DRM_NO_MODIFIERS=1` before launching your wlroots-based compositor.
 - Changing screen resolution while `wluma` is running is not supported yet, and should crash the app. Workaround: restart `wluma` after changing resolution.
 - Plugging in a screen while `wluma` is running. Workaround: restart `wluma`.
 

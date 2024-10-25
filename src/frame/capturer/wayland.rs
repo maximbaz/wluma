@@ -124,7 +124,7 @@ impl super::Capturer for Capturer {
                 } else if self.dmabuf_manager.is_some() {
                     WaylandProtocol::WlrExportDmabufUnstableV1
                 } else {
-                    panic!("No supported Wayland protocols found to capture screen contents");
+                    panic!("No supported Wayland protocols found to capture screen contents, set capturer=\"none\" in the config, or report an issue if you believe it's a mistake");
                 }
             }
         };
