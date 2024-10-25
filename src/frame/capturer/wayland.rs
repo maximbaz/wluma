@@ -361,22 +361,14 @@ impl Dispatch<ZwpLinuxBufferParamsV1, ()> for Capturer {
     ) {
         match event {
             zwp_linux_buffer_params_v1::Event::Created { buffer } => {
-                if let Some(screencopy_frame) = state.screencopy_frame.take() {
-                    screencopy_frame.copy(&buffer);
-                }
+                state.screencopy_frame.take().unwrap().copy(&buffer);
                 state.wl_buffer = Some(buffer);
-                if let Some(dmabuf_params) = state.dmabuf_params.take() {
-                    dmabuf_params.destroy();
-                }
+                state.dmabuf_params.take().unwrap().destroy();
             }
             zwp_linux_buffer_params_v1::Event::Failed => {
                 log::error!("Failed creating WlBuffer");
-                if let Some(screencopy_frame) = state.screencopy_frame.take() {
-                    screencopy_frame.destroy();
-                }
-                if let Some(dmabuf_params) = state.dmabuf_params.take() {
-                    dmabuf_params.destroy();
-                }
+                state.screencopy_frame.take().unwrap().destroy();
+                state.dmabuf_params.take().unwrap().destroy();
 
                 thread::sleep(DELAY_FAILURE);
                 state.is_processing_frame = false;
