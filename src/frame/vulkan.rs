@@ -2,7 +2,6 @@ use crate::frame::compute_perceived_lightness_percent;
 use crate::frame::object::Object;
 use ash::khr::external_memory_fd::Device as KHRDevice;
 use ash::{vk, Device, Entry, Instance};
-use std::cell::RefCell;
 use std::default::Default;
 use std::error::Error;
 use std::ffi::CString;
@@ -27,12 +26,12 @@ pub struct Vulkan {
     command_buffers: Vec<vk::CommandBuffer>,
     queue: vk::Queue,
     fence: vk::Fence,
-    image: RefCell<Option<vk::Image>>,
-    image_memory: RefCell<Option<vk::DeviceMemory>>,
-    image_resolution: RefCell<Option<(u32, u32, u32)>>,
-    frame_image: RefCell<Option<vk::Image>>,
-    frame_image_memory: RefCell<Option<vk::DeviceMemory>>,
-    frame_image_fd: RefCell<Option<OwnedFd>>,
+    image: Option<vk::Image>,
+    image_memory: Option<vk::DeviceMemory>,
+    image_resolution: Option<(u32, u32, u32)>,
+    exportable_frame_image: Option<vk::Image>,
+    exportable_frame_image_memory: Option<vk::DeviceMemory>,
+    exportable_frame_image_fd: Option<OwnedFd>,
 }
 
 impl Vulkan {
@@ -177,16 +176,16 @@ impl Vulkan {
             command_buffers,
             queue,
             fence,
-            image: RefCell::new(None),
-            image_memory: RefCell::new(None),
-            image_resolution: RefCell::new(None),
-            frame_image: RefCell::new(None),
-            frame_image_memory: RefCell::new(None),
-            frame_image_fd: RefCell::new(None),
+            image: None,
+            image_memory: None,
+            image_resolution: None,
+            exportable_frame_image: None,
+            exportable_frame_image_memory: None,
+            exportable_frame_image_fd: None,
         })
     }
 
-    pub fn luma_percent_from_external_fd(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
+    pub fn luma_percent_from_external_fd(&mut self, frame: &Object) -> Result<u8, Box<dyn Error>> {
         let (frame_image, frame_image_memory) = self.init_frame_image(frame)?;
 
         let result = self.luma_percent(&frame_image)?;
@@ -199,11 +198,8 @@ impl Vulkan {
         Ok(result)
     }
 
-    pub fn luma_percent_from_internal_fd(&self) -> Result<u8, Box<dyn Error>> {
-        let frame_image = self
-            .frame_image
-            .borrow()
-            .ok_or("Unable to borrow the Vulkan frame image")?;
+    pub fn luma_percent_from_internal_fd(&mut self) -> Result<u8, Box<dyn Error>> {
+        let frame_image = self.exportable_frame_image.unwrap();
 
         let result = self.luma_percent(&frame_image)?;
 
@@ -211,10 +207,7 @@ impl Vulkan {
     }
 
     fn luma_percent(&self, frame_image: &vk::Image) -> Result<u8, Box<dyn Error>> {
-        let image = self
-            .image
-            .borrow()
-            .ok_or("Unable to borrow the Vulkan image")?;
+        let image = self.image.ok_or("Unable to borrow the Vulkan image")?;
 
         self.begin_commands()?;
 
@@ -258,13 +251,13 @@ impl Vulkan {
         Ok(result)
     }
 
-    fn init_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
+    fn init_image(&mut self, frame: &Object) -> Result<(), Box<dyn Error>> {
         let mip_levels = f64::max(frame.width.into(), frame.height.into())
             .log2()
             .floor() as u32;
 
-        if let Some((w, h, _)) = self.image_resolution.borrow().as_ref() {
-            if (*w, *h) == (frame.width, frame.height) {
+        if let Some((w, h, _)) = self.image_resolution {
+            if (w, h) == (frame.width, frame.height) {
                 // Image is already initialized, resolution did not change
                 return Ok(());
             }
@@ -309,26 +302,25 @@ impl Vulkan {
                 .map_err(anyhow::Error::msg)?
         };
 
-        if let Some(old_image) = self.image.borrow_mut().replace(image) {
+        if let Some(old_image) = self.image.replace(image) {
             unsafe {
                 self.device.destroy_image(old_image, None);
             }
         }
-        if let Some(old_image_memory) = self.image_memory.borrow_mut().replace(image_memory) {
+        if let Some(old_image_memory) = self.image_memory.replace(image_memory) {
             unsafe {
                 self.device.free_memory(old_image_memory, None);
             }
         }
 
         self.image_resolution
-            .borrow_mut()
             .replace((frame.width, frame.height, mip_levels));
 
         Ok(())
     }
 
     fn init_frame_image(
-        &self,
+        &mut self,
         frame: &Object,
     ) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
         assert_eq!(
@@ -437,7 +429,7 @@ impl Vulkan {
     }
 
     pub fn init_exportable_frame_image(
-        &self,
+        &mut self,
         frame: &Object,
     ) -> Result<(i32, u64, u64, u64), Box<dyn Error>> {
         assert_eq!(
@@ -565,15 +557,14 @@ impl Vulkan {
 
         let raw_fd = fd.as_raw_fd();
 
-        if let Some(old_image) = self.frame_image.borrow_mut().replace(frame_image) {
+        if let Some(old_image) = self.exportable_frame_image.replace(frame_image) {
             unsafe {
                 self.device.destroy_image(old_image, None);
             }
         };
 
         if let Some(old_image_memory) = self
-            .frame_image_memory
-            .borrow_mut()
+            .exportable_frame_image_memory
             .replace(frame_image_memory)
         {
             unsafe {
@@ -581,7 +572,7 @@ impl Vulkan {
             }
         }
 
-        self.frame_image_fd.replace(Some(fd));
+        self.exportable_frame_image_fd = Some(fd);
 
         // Also ensure the internal image is initialized with the same dimensions
         self.init_image(frame)?;
@@ -684,7 +675,7 @@ impl Vulkan {
     }
 
     fn generate_mipmaps(&self, frame_image: &vk::Image, image: &vk::Image) -> (u32, u32, u32) {
-        let (mut mip_width, mut mip_height, mip_levels) = self.image_resolution.borrow().unwrap();
+        let (mut mip_width, mut mip_height, mip_levels) = self.image_resolution.unwrap();
 
         self.add_barrier(
             image,
@@ -830,10 +821,10 @@ impl Drop for Vulkan {
                 .device_wait_idle()
                 .expect("Unable to wait for device to become idle");
 
-            if let Some(image) = *self.image.borrow() {
+            if let Some(image) = self.image {
                 self.device.destroy_image(image, None);
             }
-            if let Some(image_memory) = *self.image_memory.borrow() {
+            if let Some(image_memory) = self.image_memory {
                 self.device.free_memory(image_memory, None);
             }
 

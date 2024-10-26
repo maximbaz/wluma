@@ -387,7 +387,7 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
             Event::Ready { .. } => {
                 let luma = state
                     .vulkan
-                    .as_ref()
+                    .as_mut()
                     .unwrap()
                     .luma_percent_from_external_fd(&state.pending_frame.take().unwrap())
                     .expect("Unable to compute luma percent");
@@ -498,7 +498,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                     let dmabuf_params = state.dmabuf.as_ref().unwrap().create_params(qh, ());
                     let (fd, offset, stride, modifier) = state
                         .vulkan
-                        .as_ref()
+                        .as_mut()
                         .unwrap()
                         .init_exportable_frame_image(&pending_frame)
                         .expect("Unable to init exportable frame image");
@@ -534,7 +534,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
             Event::Ready { .. } => {
                 let luma = state
                     .vulkan
-                    .as_ref()
+                    .as_mut()
                     .unwrap()
                     .luma_percent_from_internal_fd()
                     .expect("Unable to compute luma percent");
@@ -636,7 +636,7 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for Capturer {
                 let dmabuf_params = state.dmabuf.as_ref().unwrap().create_params(qh, ());
                 let (fd, offset, stride, modifier) = state
                     .vulkan
-                    .as_ref()
+                    .as_mut()
                     .unwrap()
                     .init_exportable_frame_image(pending_frame)
                     .expect("Unable to init exportable frame image");
@@ -697,7 +697,7 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for Capturer {
             Event::Ready => {
                 let luma = state
                     .vulkan
-                    .as_ref()
+                    .as_mut()
                     .unwrap()
                     .luma_percent_from_internal_fd()
                     .expect("Unable to compute luma percent");
