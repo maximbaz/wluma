@@ -4,15 +4,16 @@ A tool for Wayland compositors to automatically adjust screen brightness based o
 
 ## Supported screen capture protocols
 
-With default config, `wluma` will automatically detect which protocols are supported, and pick the most appropriate one. See "configuration" section below for how to force a specific protocol.
+With default config, `wluma` will automatically detect which protocols are supported, and pick the most appropriate one. See "Configuration" section below for more information and how to force a specific protocol.
 
-The list of available protocols:
+The list of supported protocols:
 
+- `ext-image-capture-source-v1` - the newest protocol that potentially is (or will be) supported by any modern Wayland desktop environment.
+  - At the time of writing, it's not supported by any compositor yet.
+  - requires `ext-image-capture-source-v1` and `linux-dmabuf-v1` protocol to be supported as well.
 - `wlr-screencopy-unstable-v1` - supported by any `wlroots`-based compositors (e.g. `sway`), as well as Hyprland.
   - requires `linux-dmabuf-v1` protocol to be supported as well.
 - `wlr-export-dmabuf-unstable-v1` - supported by any `wlroots`-based compositors (e.g. `sway`).
-
-Subscribe for [#121](https://github.com/maximbaz/wluma/issues/121) to see when the new `ext-image-capture-source-v1` protocol will land, which will potentially support any modern Wayland compositor once they implement the support as well.
 
 ## Idea
 
@@ -79,9 +80,11 @@ Each output is identified by compositor using model, manufacturer and serial num
 
 The `name` field in the output config will be matched as a substring, so you are free to put simply `eDP-1`, or a serial number (if you have two identical external screens). It is your responsibility to make sure that the values you use match **uniquely** to one output only.
 
-The `capturer` field will determine how screen contents will be captured. Currently supported values are `wayland` (works only on Wayland compositors that support protocols listed in the top) and `none` (ignores screen contents and predicts brightness only based on ALS). The value `wayland` will automatically choose the most appropriate protocol, but if you want to force a specific one, you can use `wlr-screencopy-unstable-v1` or `wlr-export-dmabuf-unstable-v1` as the value.
-
 _Tip:_ run `wluma` with `RUST_LOG=debug` to see how your outputs are being identified, so that you can choose an appropriate `name` configuration value.
+
+The `capturer` field will determine how screen contents will be captured. Currently supported values are `wayland` (works only on Wayland compositors that support protocols listed in the top) and `none` (ignores screen contents and predicts brightness only based on ALS). The value `wayland` will automatically choose the most appropriate protocol, but if you want to force a specific one, you can also use `ext-image-capture-source-v1`, `wlr-screencopy-unstable-v1` or `wlr-export-dmabuf-unstable-v1` as the value.
+
+_Tip:_ run `wluma` with `RUST_LOG=debug` and `capturer="wayland"` to see which protocols are supported by your Wayland compositor, and which one `wluma` chooses to use.
 
 ## Run
 
