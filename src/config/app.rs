@@ -3,6 +3,7 @@ use std::{collections::HashMap, fmt};
 #[derive(Debug, Clone, PartialEq)]
 pub enum WaylandProtocol {
     Any,
+    ExtImageCopyCaptureV1,
     WlrScreencopyUnstableV1,
     WlrExportDmabufUnstableV1,
 }
@@ -10,9 +11,10 @@ pub enum WaylandProtocol {
 impl fmt::Display for WaylandProtocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let output = match self {
-            WaylandProtocol::Any => "any",
-            WaylandProtocol::WlrScreencopyUnstableV1 => "wlr-screencopy-unstable-v1",
-            WaylandProtocol::WlrExportDmabufUnstableV1 => "wlr-export-dmabuf-unstable-v1",
+            Self::Any => "any",
+            Self::ExtImageCopyCaptureV1 => "ext-image-copy-capture-v1",
+            Self::WlrScreencopyUnstableV1 => "wlr-screencopy-unstable-v1",
+            Self::WlrExportDmabufUnstableV1 => "wlr-export-dmabuf-unstable-v1",
         };
         write!(f, "{}", output)
     }

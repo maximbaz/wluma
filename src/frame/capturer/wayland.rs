@@ -5,29 +5,25 @@ use crate::predictor::Controller;
 use std::os::fd::BorrowedFd;
 use std::thread;
 use std::time::Duration;
-use wayland_client::event_created_child;
-use wayland_client::protocol::wl_buffer;
 use wayland_client::protocol::wl_buffer::WlBuffer;
-use wayland_client::protocol::wl_output;
 use wayland_client::protocol::wl_output::WlOutput;
-use wayland_client::protocol::wl_registry;
 use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::Connection;
 use wayland_client::Dispatch;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
-use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1;
+use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_session_v1::ExtImageCopyCaptureSessionV1;
+use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::Options;
+use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::ExtImageCopyCaptureManagerV1;
+use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_frame_v1::ExtImageCopyCaptureFrameV1;
+use wayland_protocols::ext::image_capture_source::v1::client::ext_output_image_capture_source_manager_v1::ExtOutputImageCaptureSourceManagerV1;
+use wayland_protocols::ext::image_capture_source::v1::client::ext_image_capture_source_v1::ExtImageCaptureSourceV1;
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1::Flags;
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1;
-use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_dmabuf_v1;
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1;
-use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_frame_v1;
 use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_frame_v1::ZwlrExportDmabufFrameV1;
-use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_manager_v1;
 use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1;
-use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_frame_v1;
 use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_frame_v1::ZwlrScreencopyFrameV1;
-use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_manager_v1;
 use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1;
 
 const DELAY_SUCCESS: Duration = Duration::from_millis(100);
@@ -41,12 +37,16 @@ pub struct Capturer {
     output_global_id: Option<u32>,
     pending_frame: Option<Object>,
     controller: Option<Controller>,
+    // linux-dmabuf-v1
+    dmabuf: Option<ZwpLinuxDmabufV1>,
+    wl_buffer: Option<WlBuffer>,
+    // ext-image-capture-source-v1
+    img_capture_source_manager: Option<ExtOutputImageCaptureSourceManagerV1>,
+    // ext-image-copy-capture-v1
+    img_copy_capture_manager: Option<ExtImageCopyCaptureManagerV1>,
+    img_copy_capture_session: Option<ExtImageCopyCaptureSessionV1>,
     // wlr-screencopy-unstable-v1
     screencopy_manager: Option<ZwlrScreencopyManagerV1>,
-    dmabuf: Option<ZwpLinuxDmabufV1>,
-    screencopy_frame: Option<ZwlrScreencopyFrameV1>,
-    wl_buffer: Option<WlBuffer>,
-    dmabuf_params: Option<ZwpLinuxBufferParamsV1>,
     // wlr-export-dmabuf-unstable-v1
     dmabuf_manager: Option<ZwlrExportDmabufManagerV1>,
 }
@@ -65,14 +65,20 @@ impl Capturer {
             vulkan: None,
             output: None,
             output_global_id: None,
-            screencopy_manager: None,
-            dmabuf: None,
-            screencopy_frame: None,
-            wl_buffer: None,
-            dmabuf_manager: None,
             pending_frame: None,
-            dmabuf_params: None,
             controller: None,
+            // linux-dmabuf-v1
+            dmabuf: None,
+            wl_buffer: None,
+            // ext-image-capture-source-v1
+            img_capture_source_manager: None,
+            // ext-image-copy-capture-v1
+            img_copy_capture_manager: None,
+            img_copy_capture_session: None,
+            // wlr-screencopy-unstable-v1
+            screencopy_manager: None,
+            // wlr-export-dmabuf-unstable-v1
+            dmabuf_manager: None,
         }
     }
 }
@@ -103,6 +109,18 @@ impl super::Capturer for Capturer {
             .expect("Unable to perform 2nd initial roundtrip");
 
         let protocol_to_use = match self.protocol {
+            WaylandProtocol::ExtImageCopyCaptureV1 => {
+                if self.img_copy_capture_manager.is_none() {
+                    panic!("Requested to use ext-image-copy-capture-v1 protocol, but it's not available");
+                }
+                if self.img_capture_source_manager.is_none() {
+                    panic!("Requested to use ext-image-copy-capture-v1 protocol, but a required ext-image-capture-source-v1 protocol it's not available");
+                }
+                if self.dmabuf.is_none() {
+                    panic!("Requested to use ext-image-copy-capture-v1 protocol, but a required linux-dmabuf-v1 protocol it's not available");
+                }
+                WaylandProtocol::ExtImageCopyCaptureV1
+            }
             WaylandProtocol::WlrScreencopyUnstableV1 => {
                 if self.screencopy_manager.is_none() {
                     panic!("Requested to use wlr-screencopy-unstable-v1 protocol, but it's not available");
@@ -119,7 +137,12 @@ impl super::Capturer for Capturer {
                 WaylandProtocol::WlrExportDmabufUnstableV1
             }
             WaylandProtocol::Any => {
-                if self.screencopy_manager.is_some() && self.dmabuf.is_some() {
+                if self.img_copy_capture_manager.is_some()
+                    && self.img_capture_source_manager.is_some()
+                    && self.dmabuf.is_some()
+                {
+                    WaylandProtocol::ExtImageCopyCaptureV1
+                } else if self.screencopy_manager.is_some() && self.dmabuf.is_some() {
                     WaylandProtocol::WlrScreencopyUnstableV1
                 } else if self.dmabuf_manager.is_some() {
                     WaylandProtocol::WlrExportDmabufUnstableV1
@@ -135,29 +158,60 @@ impl super::Capturer for Capturer {
 
         loop {
             if !self.is_processing_frame {
-                if let Some(output) = self.output.as_mut() {
-                    self.is_processing_frame = true;
-
+                if let Some(output) = self.output.as_ref() {
                     match protocol_to_use {
+                        WaylandProtocol::ExtImageCopyCaptureV1 => {
+                            if self.img_copy_capture_session.is_none() {
+                                let capture_src = self
+                                    .img_capture_source_manager
+                                    .as_ref()
+                                    .unwrap()
+                                    .create_source(output, &event_queue.handle(), ());
+
+                                self.img_copy_capture_session = Some(
+                                    self.img_copy_capture_manager
+                                        .as_ref()
+                                        .unwrap()
+                                        .create_session(
+                                            &capture_src,
+                                            Options::empty(),
+                                            &event_queue.handle(),
+                                            (),
+                                        ),
+                                );
+                            }
+
+                            if let Some(buffer) = self.wl_buffer.as_ref() {
+                                let frame = self
+                                    .img_copy_capture_session
+                                    .as_ref()
+                                    .unwrap()
+                                    .create_frame(&event_queue.handle(), ());
+                                frame.attach_buffer(buffer);
+                                frame.capture();
+
+                                self.is_processing_frame = true;
+                            }
+                        }
                         WaylandProtocol::WlrScreencopyUnstableV1 => {
-                            self.screencopy_manager.as_mut().unwrap().capture_output(
+                            self.screencopy_manager.as_ref().unwrap().capture_output(
                                 0,
                                 output,
                                 &event_queue.handle(),
                                 (),
                             );
+                            self.is_processing_frame = true;
                         }
                         WaylandProtocol::WlrExportDmabufUnstableV1 => {
-                            self.dmabuf_manager.as_mut().unwrap().capture_output(
+                            self.dmabuf_manager.as_ref().unwrap().capture_output(
                                 0,
                                 output,
                                 &event_queue.handle(),
                                 (),
                             );
+                            self.is_processing_frame = true;
                         }
-                        _ => {
-                            unreachable!();
-                        }
+                        WaylandProtocol::Any => unreachable!(),
                     }
                 }
             }
@@ -175,15 +229,15 @@ impl Dispatch<WlOutput, GlobalsContext> for Capturer {
     fn event(
         state: &mut Self,
         output: &WlOutput,
-        event: wl_output::Event,
+        event: <WlOutput as Proxy>::Event,
         ctx: &GlobalsContext,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        use wayland_client::protocol::wl_output::Event;
+
         match event {
-            wl_output::Event::Description { description }
-                if description.contains(&ctx.desired_output) =>
-            {
+            Event::Description { description } if description.contains(&ctx.desired_output) => {
                 if state.output.is_none() {
                     log::debug!(
                         "Using output '{}' for config '{}'",
@@ -196,6 +250,7 @@ impl Dispatch<WlOutput, GlobalsContext> for Capturer {
                     log::error!("Cannot use output '{}' for config '{}' because another output was already matched with it, skipping this output.", description, ctx.desired_output);
                 }
             }
+
             _ => {}
         }
     }
@@ -205,13 +260,15 @@ impl Dispatch<WlRegistry, GlobalsContext> for Capturer {
     fn event(
         state: &mut Self,
         registry: &WlRegistry,
-        event: wl_registry::Event,
+        event: <WlRegistry as Proxy>::Event,
         ctx: &GlobalsContext,
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
+        use wayland_client::protocol::wl_registry::Event;
+
         match event {
-            wl_registry::Event::Global {
+            Event::Global {
                 name,
                 interface,
                 version,
@@ -245,10 +302,31 @@ impl Dispatch<WlRegistry, GlobalsContext> for Capturer {
                             registry.bind::<ZwlrScreencopyManagerV1, _, _>(name, version, qh, ()),
                         );
                     }
+                    _ if interface == ExtOutputImageCaptureSourceManagerV1::interface().name => {
+                        log::debug!("Detected support for ext-image-capture-source-v1 protocol");
+                        state.img_capture_source_manager =
+                            Some(registry.bind::<ExtOutputImageCaptureSourceManagerV1, _, _>(
+                                name,
+                                version,
+                                qh,
+                                (),
+                            ));
+                    }
+                    _ if interface == ExtImageCopyCaptureManagerV1::interface().name => {
+                        log::debug!("Detected support for ext-image-copy-capture-v1 protocol");
+                        state.img_copy_capture_manager =
+                            Some(registry.bind::<ExtImageCopyCaptureManagerV1, _, _>(
+                                name,
+                                version,
+                                qh,
+                                (),
+                            ));
+                    }
                     _ => {}
                 };
             }
-            wl_registry::Event::GlobalRemove { name } => {
+
+            Event::GlobalRemove { name } => {
                 if Some(name) == state.output_global_id {
                     log::debug!("Disconnected screen {}", ctx.desired_output);
                     state.output = None;
@@ -266,7 +344,7 @@ impl Dispatch<ZwlrExportDmabufManagerV1, ()> for Capturer {
     fn event(
         _: &mut Self,
         _: &ZwlrExportDmabufManagerV1,
-        _: zwlr_export_dmabuf_manager_v1::Event,
+        _: <ZwlrExportDmabufManagerV1 as Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
@@ -278,13 +356,15 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
     fn event(
         state: &mut Self,
         frame: &ZwlrExportDmabufFrameV1,
-        event: zwlr_export_dmabuf_frame_v1::Event,
+        event: <ZwlrExportDmabufFrameV1 as Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_frame_v1::Event;
+
         match event {
-            zwlr_export_dmabuf_frame_v1::Event::Frame {
+            Event::Frame {
                 width,
                 height,
                 num_objects,
@@ -294,7 +374,7 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
                 state.pending_frame = Some(Object::new(width, height, num_objects, format));
             }
 
-            zwlr_export_dmabuf_frame_v1::Event::Object {
+            Event::Object {
                 index, fd, size, ..
             } => {
                 state
@@ -304,12 +384,12 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
                     .set_object(index, fd, size);
             }
 
-            zwlr_export_dmabuf_frame_v1::Event::Ready { .. } => {
+            Event::Ready { .. } => {
                 let luma = state
                     .vulkan
                     .as_ref()
                     .unwrap()
-                    .luma_percent(&state.pending_frame.take().unwrap())
+                    .luma_percent_from_external_fd(&state.pending_frame.take().unwrap())
                     .expect("Unable to compute luma percent");
 
                 state.controller.as_mut().unwrap().adjust(luma);
@@ -320,10 +400,10 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
                 state.is_processing_frame = false;
             }
 
-            zwlr_export_dmabuf_frame_v1::Event::Cancel { reason } => {
+            Event::Cancel { reason } => {
+                log::error!("Frame was cancelled, reason: {reason:?}");
                 frame.destroy();
 
-                log::error!("Frame was cancelled, reason: {reason:?}");
                 thread::sleep(DELAY_FAILURE);
                 state.is_processing_frame = false;
             }
@@ -333,13 +413,13 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
     }
 }
 
-// ==== wlr-screencopy-unstable-v1 protocol ====
+// ==== linux-dmabuf-v1 protocol ====
 
 impl Dispatch<ZwpLinuxDmabufV1, ()> for Capturer {
     fn event(
         _: &mut Self,
         _: &ZwpLinuxDmabufV1,
-        _: zwp_linux_dmabuf_v1::Event,
+        _: <ZwpLinuxDmabufV1 as Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
@@ -348,42 +428,10 @@ impl Dispatch<ZwpLinuxDmabufV1, ()> for Capturer {
 }
 
 impl Dispatch<ZwpLinuxBufferParamsV1, ()> for Capturer {
-    event_created_child!(Capturer, ZwpLinuxBufferParamsV1, [
-        wl_buffer::EVT_RELEASE_OPCODE => (WlBuffer, ()),
-    ]);
-
-    fn event(
-        state: &mut Self,
-        _: &ZwpLinuxBufferParamsV1,
-        event: zwp_linux_buffer_params_v1::Event,
-        _: &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-        match event {
-            zwp_linux_buffer_params_v1::Event::Created { buffer } => {
-                state.screencopy_frame.take().unwrap().copy(&buffer);
-                state.wl_buffer = Some(buffer);
-                state.dmabuf_params.take().unwrap().destroy();
-            }
-            zwp_linux_buffer_params_v1::Event::Failed => {
-                log::error!("Failed creating WlBuffer");
-                state.screencopy_frame.take().unwrap().destroy();
-                state.dmabuf_params.take().unwrap().destroy();
-
-                thread::sleep(DELAY_FAILURE);
-                state.is_processing_frame = false;
-            }
-            _ => {}
-        }
-    }
-}
-
-impl Dispatch<ZwlrScreencopyManagerV1, ()> for Capturer {
     fn event(
         _: &mut Self,
-        _: &ZwlrScreencopyManagerV1,
-        _: zwlr_screencopy_manager_v1::Event,
+        _: &ZwpLinuxBufferParamsV1,
+        _: <ZwpLinuxBufferParamsV1 as Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
@@ -395,7 +443,21 @@ impl Dispatch<WlBuffer, ()> for Capturer {
     fn event(
         _: &mut Self,
         _: &WlBuffer,
-        _: wl_buffer::Event,
+        _: <WlBuffer as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+// ==== wlr-screencopy-unstable-v1 protocol ====
+
+impl Dispatch<ZwlrScreencopyManagerV1, ()> for Capturer {
+    fn event(
+        _: &mut Self,
+        _: &ZwlrScreencopyManagerV1,
+        _: <ZwlrScreencopyManagerV1 as Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
@@ -407,24 +469,176 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
     fn event(
         state: &mut Self,
         frame: &ZwlrScreencopyFrameV1,
-        event: zwlr_screencopy_frame_v1::Event,
+        event: <ZwlrScreencopyFrameV1 as Proxy>::Event,
         _: &(),
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
+        use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_frame_v1::Event;
+
         match event {
-            zwlr_screencopy_frame_v1::Event::LinuxDmabuf {
+            Event::LinuxDmabuf {
                 width,
                 height,
                 format,
             } => {
-                let pending_frame = Object::new(width, height, 1, format);
+                if let Some(pending_frame) = state.pending_frame.as_ref() {
+                    if pending_frame.width != width
+                        || pending_frame.height != height
+                        || pending_frame.format != format
+                    {
+                        if let Some(buffer) = state.wl_buffer.take() {
+                            buffer.destroy()
+                        }
+                    }
+                }
+
+                if state.wl_buffer.is_none() {
+                    let pending_frame = Object::new(width, height, 1, format);
+                    let dmabuf_params = state.dmabuf.as_ref().unwrap().create_params(qh, ());
+                    let (fd, offset, stride, modifier) = state
+                        .vulkan
+                        .as_ref()
+                        .unwrap()
+                        .init_exportable_frame_image(&pending_frame)
+                        .expect("Unable to init exportable frame image");
+
+                    let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+
+                    dmabuf_params.add(
+                        fd,
+                        0,
+                        offset as u32,
+                        stride as u32,
+                        (modifier >> 32) as u32,
+                        (modifier & 0xFFFFFFFF) as u32,
+                    );
+
+                    let wl_buffer = dmabuf_params.create_immed(
+                        width as i32,
+                        height as i32,
+                        format,
+                        Flags::empty(),
+                        qh,
+                        (),
+                    );
+
+                    dmabuf_params.destroy();
+                    state.wl_buffer = Some(wl_buffer);
+                    state.pending_frame = Some(pending_frame);
+                }
+
+                frame.copy(state.wl_buffer.as_ref().unwrap());
+            }
+
+            Event::Ready { .. } => {
+                let luma = state
+                    .vulkan
+                    .as_ref()
+                    .unwrap()
+                    .luma_percent_from_internal_fd()
+                    .expect("Unable to compute luma percent");
+
+                state.controller.as_mut().unwrap().adjust(luma);
+
+                frame.destroy();
+
+                thread::sleep(DELAY_SUCCESS);
+                state.is_processing_frame = false;
+            }
+
+            Event::Failed {} => {
+                log::error!("Frame copy failed");
+                frame.destroy();
+
+                if let Some(buffer) = state.wl_buffer.take() {
+                    buffer.destroy()
+                }
+
+                thread::sleep(DELAY_FAILURE);
+                state.is_processing_frame = false;
+            }
+
+            _ => {}
+        }
+    }
+}
+
+// ==== ext-image-capture-source-v1 protocol ====
+
+impl Dispatch<ExtOutputImageCaptureSourceManagerV1, ()> for Capturer {
+    fn event(
+        _: &mut Self,
+        _: &ExtOutputImageCaptureSourceManagerV1,
+        _: <ExtOutputImageCaptureSourceManagerV1 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ExtImageCaptureSourceV1, ()> for Capturer {
+    fn event(
+        _: &mut Self,
+        _: &ExtImageCaptureSourceV1,
+        _: <ExtImageCaptureSourceV1 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+// ==== ext-image-copy-capture-v1 protocol ====
+
+impl Dispatch<ExtImageCopyCaptureManagerV1, ()> for Capturer {
+    fn event(
+        _: &mut Self,
+        _: &ExtImageCopyCaptureManagerV1,
+        _: <ExtImageCopyCaptureManagerV1 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for Capturer {
+    fn event(
+        state: &mut Self,
+        _: &ExtImageCopyCaptureSessionV1,
+        event: <ExtImageCopyCaptureSessionV1 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_session_v1::Event;
+
+        match event {
+            Event::BufferSize { width, height } => {
+                // TODO format is actually not known at this stage, see below
+                let pending_frame = Object::new(width, height, 1, 875713112);
+                state.pending_frame = Some(pending_frame);
+            }
+
+            Event::DmabufFormat { .. } => {
+                // TODO figure out how to use modifiers from wl_screenrec, once I have a device that supports modifiers
+            }
+
+            Event::Done => {
+                if let Some(buffer) = state.wl_buffer.take() {
+                    buffer.destroy()
+                }
+
+                let pending_frame = state.pending_frame.as_ref().unwrap();
+
                 let dmabuf_params = state.dmabuf.as_ref().unwrap().create_params(qh, ());
                 let (fd, offset, stride, modifier) = state
                     .vulkan
                     .as_ref()
                     .unwrap()
-                    .init_exportable_frame_image(&pending_frame)
+                    .init_exportable_frame_image(pending_frame)
                     .expect("Unable to init exportable frame image");
 
                 let fd = unsafe { BorrowedFd::borrow_raw(fd) };
@@ -438,38 +652,67 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                     (modifier & 0xFFFFFFFF) as u32,
                 );
 
-                dmabuf_params.create(width as i32, height as i32, format, Flags::empty());
+                let wl_buffer = dmabuf_params.create_immed(
+                    pending_frame.width as i32,
+                    pending_frame.height as i32,
+                    pending_frame.format,
+                    Flags::empty(),
+                    qh,
+                    (),
+                );
 
-                state.screencopy_frame = Some(frame.clone());
-                state.pending_frame = Some(pending_frame);
-                state.dmabuf_params = Some(dmabuf_params);
+                dmabuf_params.destroy();
+
+                state.wl_buffer = Some(wl_buffer);
             }
 
-            zwlr_screencopy_frame_v1::Event::Ready { .. } => {
+            Event::Stopped => {
+                log::error!("Image copy session stopped");
+                state.img_copy_capture_session.take().unwrap().destroy();
+                if let Some(buffer) = state.wl_buffer.take() {
+                    buffer.destroy()
+                }
+
+                thread::sleep(DELAY_FAILURE);
+                state.is_processing_frame = false;
+            }
+
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for Capturer {
+    fn event(
+        state: &mut Self,
+        frame: &ExtImageCopyCaptureFrameV1,
+        event: <ExtImageCopyCaptureFrameV1 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_frame_v1::Event;
+
+        match event {
+            Event::Ready => {
                 let luma = state
                     .vulkan
                     .as_ref()
                     .unwrap()
-                    .luma_percent(&state.pending_frame.take().unwrap())
+                    .luma_percent_from_internal_fd()
                     .expect("Unable to compute luma percent");
 
                 state.controller.as_mut().unwrap().adjust(luma);
 
                 frame.destroy();
-                if let Some(buffer) = state.wl_buffer.take() {
-                    buffer.destroy()
-                }
 
                 thread::sleep(DELAY_SUCCESS);
                 state.is_processing_frame = false;
             }
 
-            zwlr_screencopy_frame_v1::Event::Failed {} => {
-                log::error!("Frame copy failed");
+            Event::Failed { reason } => {
+                log::error!("Frame copy failed, reason: {reason:?}");
                 frame.destroy();
-                if let Some(buffer) = state.wl_buffer.take() {
-                    buffer.destroy()
-                }
 
                 thread::sleep(DELAY_FAILURE);
                 state.is_processing_frame = false;

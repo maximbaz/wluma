@@ -29,7 +29,7 @@ pub struct Vulkan {
     fence: vk::Fence,
     image: RefCell<Option<vk::Image>>,
     image_memory: RefCell<Option<vk::DeviceMemory>>,
-    image_resolution: RefCell<Option<(u32, u32)>>,
+    image_resolution: RefCell<Option<(u32, u32, u32)>>,
     frame_image: RefCell<Option<vk::Image>>,
     frame_image_memory: RefCell<Option<vk::DeviceMemory>>,
     frame_image_fd: RefCell<Option<OwnedFd>>,
@@ -186,48 +186,40 @@ impl Vulkan {
         })
     }
 
-    pub fn luma_percent(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
-        assert_eq!(
-            1, frame.num_objects,
-            "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
-        );
-        assert_eq!(
-            875713112, frame.format,
-            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
-        );
+    pub fn luma_percent_from_external_fd(&self, frame: &Object) -> Result<u8, Box<dyn Error>> {
+        let (frame_image, frame_image_memory) = self.init_frame_image(frame)?;
 
-        if self.image.borrow().is_none() {
-            self.init_image(frame)?;
+        let result = self.luma_percent(&frame_image)?;
+
+        unsafe {
+            self.device.destroy_image(frame_image, None);
+            self.device.free_memory(frame_image_memory, None);
         }
-        assert_eq!(
-            (frame.width, frame.height),
-            self.image_resolution.borrow().unwrap(),
-            "Handling screen resolution change is not supported yet"
-        );
 
+        Ok(result)
+    }
+
+    pub fn luma_percent_from_internal_fd(&self) -> Result<u8, Box<dyn Error>> {
+        let frame_image = self
+            .frame_image
+            .borrow()
+            .ok_or("Unable to borrow the Vulkan frame image")?;
+
+        let result = self.luma_percent(&frame_image)?;
+
+        Ok(result)
+    }
+
+    fn luma_percent(&self, frame_image: &vk::Image) -> Result<u8, Box<dyn Error>> {
         let image = self
             .image
             .borrow()
             .ok_or("Unable to borrow the Vulkan image")?;
 
-        if self.frame_image.borrow().is_none() {
-            self.init_frame_image(frame)?;
-        };
-
-        let frame_image = self
-            .frame_image
-            .take()
-            .ok_or("Unable to borrow the Vulkan frame image")?;
-
-        let frame_image_memory = self
-            .frame_image_memory
-            .take()
-            .ok_or("Unable to borrow the Vulkan frame image memory")?;
-
         self.begin_commands()?;
 
         self.add_barrier(
-            &frame_image,
+            frame_image,
             0,
             1,
             vk::ImageLayout::UNDEFINED,
@@ -237,8 +229,7 @@ impl Vulkan {
             vk::PipelineStageFlags::TOP_OF_PIPE,
         );
 
-        let (target_mip_level, mip_width, mip_height) =
-            self.generate_mipmaps(frame, &frame_image, &image);
+        let (target_mip_level, mip_width, mip_height) = self.generate_mipmaps(frame_image, &image);
 
         self.copy_mipmap(&image, target_mip_level, mip_width, mip_height);
 
@@ -262,23 +253,29 @@ impl Vulkan {
 
         unsafe {
             self.device.unmap_memory(self.buffer_memory);
-            self.device.destroy_image(frame_image, None);
-            self.device.free_memory(frame_image_memory, None);
-            self.frame_image_fd.replace(None);
         }
 
         Ok(result)
     }
 
     fn init_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
-        let (width, height, mip_levels) = image_dimensions(frame);
+        let mip_levels = f64::max(frame.width.into(), frame.height.into())
+            .log2()
+            .floor() as u32;
+
+        if let Some((w, h, _)) = self.image_resolution.borrow().as_ref() {
+            if (*w, *h) == (frame.width, frame.height) {
+                // Image is already initialized, resolution did not change
+                return Ok(());
+            }
+        }
 
         let image_create_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(vk::Format::R8G8B8A8_UNORM)
             .extent(vk::Extent3D {
-                width,
-                height,
+                width: frame.width,
+                height: frame.height,
                 depth: 1,
             })
             .mip_levels(mip_levels)
@@ -312,15 +309,37 @@ impl Vulkan {
                 .map_err(anyhow::Error::msg)?
         };
 
-        self.image.borrow_mut().replace(image);
-        self.image_memory.borrow_mut().replace(image_memory);
+        if let Some(old_image) = self.image.borrow_mut().replace(image) {
+            unsafe {
+                self.device.destroy_image(old_image, None);
+            }
+        }
+        if let Some(old_image_memory) = self.image_memory.borrow_mut().replace(image_memory) {
+            unsafe {
+                self.device.free_memory(old_image_memory, None);
+            }
+        }
+
         self.image_resolution
             .borrow_mut()
-            .replace((frame.width, frame.height));
+            .replace((frame.width, frame.height, mip_levels));
+
         Ok(())
     }
 
-    fn init_frame_image(&self, frame: &Object) -> Result<(), Box<dyn Error>> {
+    fn init_frame_image(
+        &self,
+        frame: &Object,
+    ) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
+        assert_eq!(
+            1, frame.num_objects,
+            "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
+        );
+        assert_eq!(
+            875713112, frame.format,
+            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
+        );
+
         // External memory info
         let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
@@ -411,17 +430,26 @@ impl Vulkan {
                 .map_err(anyhow::Error::msg)?;
         };
 
-        self.frame_image.borrow_mut().replace(frame_image);
-        self.frame_image_memory
-            .borrow_mut()
-            .replace(frame_image_memory);
-        Ok(())
+        // Also ensure the internal image is initialized with the same dimensions
+        self.init_image(frame)?;
+
+        Ok((frame_image, frame_image_memory))
     }
 
     pub fn init_exportable_frame_image(
         &self,
         frame: &Object,
     ) -> Result<(i32, u64, u64, u64), Box<dyn Error>> {
+        assert_eq!(
+            1, frame.num_objects,
+            "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
+        );
+
+        assert_eq!(
+            875713112, frame.format,
+            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
+        );
+
         let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
 
@@ -521,11 +549,6 @@ impl Vulkan {
             )
         };
 
-        self.frame_image.borrow_mut().replace(frame_image);
-        self.frame_image_memory
-            .borrow_mut()
-            .replace(frame_image_memory);
-
         let subresource = vk::ImageSubresource::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .mip_level(0)
@@ -541,7 +564,27 @@ impl Vulkan {
         let modifier: u64 = 0; // DRM_FORMAT_MOD_LINEAR
 
         let raw_fd = fd.as_raw_fd();
+
+        if let Some(old_image) = self.frame_image.borrow_mut().replace(frame_image) {
+            unsafe {
+                self.device.destroy_image(old_image, None);
+            }
+        };
+
+        if let Some(old_image_memory) = self
+            .frame_image_memory
+            .borrow_mut()
+            .replace(frame_image_memory)
+        {
+            unsafe {
+                self.device.free_memory(old_image_memory, None);
+            }
+        }
+
         self.frame_image_fd.replace(Some(fd));
+
+        // Also ensure the internal image is initialized with the same dimensions
+        self.init_image(frame)?;
 
         Ok((raw_fd, offset, stride, modifier))
     }
@@ -640,13 +683,8 @@ impl Vulkan {
         }
     }
 
-    fn generate_mipmaps(
-        &self,
-        frame: &Object,
-        frame_image: &vk::Image,
-        image: &vk::Image,
-    ) -> (u32, u32, u32) {
-        let (mut mip_width, mut mip_height, mip_levels) = image_dimensions(frame);
+    fn generate_mipmaps(&self, frame_image: &vk::Image, image: &vk::Image) -> (u32, u32, u32) {
+        let (mut mip_width, mut mip_height, mip_levels) = self.image_resolution.borrow().unwrap();
 
         self.add_barrier(
             image,
@@ -661,8 +699,8 @@ impl Vulkan {
 
         self.blit(
             frame_image,
-            frame.width,
-            frame.height,
+            mip_width,
+            mip_height,
             0,
             image,
             mip_width,
@@ -809,13 +847,6 @@ impl Drop for Vulkan {
             self.instance.destroy_instance(None);
         }
     }
-}
-
-fn image_dimensions(frame: &Object) -> (u32, u32, u32) {
-    let width = frame.width / 2;
-    let height = frame.height / 2;
-    let mip_levels = f64::max(width.into(), height.into()).log2().floor() as u32 + 1;
-    (width, height, mip_levels)
 }
 
 fn find_memory_type_index(

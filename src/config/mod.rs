@@ -44,6 +44,9 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                         file::Capturer::Wayland => {
                             app::Capturer::Wayland(app::WaylandProtocol::Any)
                         }
+                        file::Capturer::ExtImageCopyCaptureV1 => {
+                            app::Capturer::Wayland(app::WaylandProtocol::ExtImageCopyCaptureV1)
+                        }
                         file::Capturer::WlrScreencopyUnstableV1 => {
                             app::Capturer::Wayland(app::WaylandProtocol::WlrScreencopyUnstableV1)
                         }
@@ -67,6 +70,9 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                         }
                         file::Capturer::Wayland => {
                             app::Capturer::Wayland(app::WaylandProtocol::Any)
+                        }
+                        file::Capturer::ExtImageCopyCaptureV1 => {
+                            app::Capturer::Wayland(app::WaylandProtocol::ExtImageCopyCaptureV1)
                         }
                         file::Capturer::WlrScreencopyUnstableV1 => {
                             app::Capturer::Wayland(app::WaylandProtocol::WlrScreencopyUnstableV1)

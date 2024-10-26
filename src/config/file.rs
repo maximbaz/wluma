@@ -11,6 +11,8 @@ pub enum Capturer {
     WlrExportDmabufUnstableV1,
     #[serde(rename = "wlr-screencopy-unstable-v1")]
     WlrScreencopyUnstableV1,
+    #[serde(rename = "ext-image-copy-capture-v1")]
+    ExtImageCopyCaptureV1,
     #[serde(rename = "none")]
     None,
 }
