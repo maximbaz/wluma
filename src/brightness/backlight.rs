@@ -21,6 +21,7 @@ pub struct Backlight {
     current: Option<u64>,
     dbus: Option<Dbus>,
     has_write_permission: bool,
+    pending_dbus_write: bool,
 }
 
 impl Backlight {
@@ -89,6 +90,7 @@ impl Backlight {
             current: None,
             dbus,
             has_write_permission,
+            pending_dbus_write: false,
         })
     }
 }
@@ -105,10 +107,11 @@ impl super::Brightness for Backlight {
         match (self.inotify.read_events(&mut buffer), self.current) {
             (_, None) => update(self),
             (Ok(mut events), Some(cached)) => {
-                if events.next().is_some() {
-                    update(self)
-                } else {
+                if self.pending_dbus_write || events.next().is_none() {
+                    self.pending_dbus_write = false;
                     Ok(cached)
+                } else {
+                    update(self)
                 }
             }
             (Err(err), Some(cached)) if err.kind() == ErrorKind::WouldBlock => Ok(cached),
@@ -125,6 +128,7 @@ impl super::Brightness for Backlight {
             dbus.connection
                 .send(dbus.message.duplicate()?.append1(value as u32))
                 .map_err(|_| "Unable to send brightness change message via dbus")?;
+            self.pending_dbus_write = true;
         } else {
             Err(std::io::Error::from(ErrorKind::PermissionDenied))?
         }
