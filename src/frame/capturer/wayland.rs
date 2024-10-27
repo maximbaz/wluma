@@ -401,7 +401,7 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
             }
 
             Event::Cancel { reason } => {
-                log::error!("Frame was cancelled, reason: {reason:?}");
+                log::debug!("Frame was cancelled, reason: {reason:?}");
                 frame.destroy();
 
                 thread::sleep(DELAY_FAILURE);
@@ -548,7 +548,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
             }
 
             Event::Failed {} => {
-                log::error!("Frame copy failed");
+                log::debug!("Frame copy failed");
                 frame.destroy();
 
                 if let Some(buffer) = state.wl_buffer.take() {
@@ -667,7 +667,7 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for Capturer {
             }
 
             Event::Stopped => {
-                log::error!("Image copy session stopped");
+                log::debug!("Image copy session stopped");
                 state.img_copy_capture_session.take().unwrap().destroy();
                 if let Some(buffer) = state.wl_buffer.take() {
                     buffer.destroy()
@@ -711,7 +711,7 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for Capturer {
             }
 
             Event::Failed { reason } => {
-                log::error!("Frame copy failed, reason: {reason:?}");
+                log::debug!("Frame copy failed, reason: {reason:?}");
                 frame.destroy();
 
                 thread::sleep(DELAY_FAILURE);
