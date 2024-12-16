@@ -31,7 +31,9 @@ pub enum Als {
         video: usize,
         thresholds: HashMap<String, String>,
     },
-    None,
+    None {
+        manual: HashMap<String, u64>,
+    },
 }
 
 #[derive(Deserialize, Debug, Default)]

@@ -1,6 +1,8 @@
 use itertools::Itertools;
 use std::sync::mpsc;
 
+use crate::frame::capturer::Adjustable;
+
 mod als;
 mod brightness;
 mod config;
@@ -63,6 +65,10 @@ fn main() {
                         })
                         .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
 
+                    let luma_to_brightness = match &config.als {
+                        config::Als::None { luma_to_brightness } => luma_to_brightness.clone(),
+                        _ => Vec::default(),
+                    };
                     let thread_name = format!("predictor-{}", output_name);
                     std::thread::Builder::new()
                         .name(thread_name.clone())
@@ -77,13 +83,23 @@ fn main() {
                                     }
                                 };
 
-                            let controller = predictor::Controller::new(
-                                prediction_tx,
-                                user_rx,
-                                als_rx,
-                                true,
-                                &output_name,
-                            );
+                            let controller: Box<dyn Adjustable>;
+                            if luma_to_brightness.is_empty() {
+                                controller = Box::new(predictor::Controller::new(
+                                    prediction_tx,
+                                    user_rx,
+                                    als_rx,
+                                    true,
+                                    &output_name,
+                                ));
+                            } else {
+                                controller = Box::new(predictor::LumaOnlyController::new(
+                                    prediction_tx,
+                                    user_rx,
+                                    luma_to_brightness,
+                                ));
+                            }
+
                             frame_capturer.run(&output_name, controller)
                         })
                         .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
@@ -122,7 +138,7 @@ fn main() {
                         .expect("Unable to start thread: als-webcam");
                     als::webcam::Als::new(webcam_rx, thresholds)
                 }),
-                config::Als::None => Box::<als::none::Als>::default(),
+                config::Als::None { .. } => Box::<als::none::Als>::default(),
             };
 
             als::controller::Controller::new(als, als_txs).run();

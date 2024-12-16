@@ -3,6 +3,8 @@ use itertools::Itertools;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
+use crate::frame::capturer::Adjustable;
+
 const INITIAL_TIMEOUT_SECS: u64 = 5;
 const PENDING_COOLDOWN_RESET: u8 = 15;
 const NEXT_ALS_COOLDOWN_RESET: u8 = 15;
@@ -22,37 +24,8 @@ pub struct Controller {
     output_name: String,
 }
 
-impl Controller {
-    pub fn new(
-        prediction_tx: Sender<u64>,
-        user_rx: Receiver<u64>,
-        als_rx: Receiver<String>,
-        stateful: bool,
-        output_name: &str,
-    ) -> Self {
-        let data = if stateful {
-            Data::load(output_name)
-        } else {
-            Data::new(output_name)
-        };
-
-        Self {
-            prediction_tx,
-            user_rx,
-            als_rx,
-            pending_cooldown: 0,
-            pending: None,
-            data,
-            stateful,
-            initial_brightness: None,
-            last_als: None,
-            next_als: None,
-            next_als_cooldown: 0,
-            output_name: output_name.to_string(),
-        }
-    }
-
-    pub fn adjust(&mut self, luma: u8) {
+impl Adjustable for Controller {
+    fn adjust(&mut self, luma: u8) {
         if self.last_als.is_none() {
             // ALS controller is expected to send the initial value on this channel asap
             self.last_als = self
@@ -96,6 +69,37 @@ impl Controller {
 
         let lux = &self.last_als.clone().expect("ALS value must be known");
         self.process(lux, luma);
+    }
+}
+
+impl Controller {
+    pub fn new(
+        prediction_tx: Sender<u64>,
+        user_rx: Receiver<u64>,
+        als_rx: Receiver<String>,
+        stateful: bool,
+        output_name: &str,
+    ) -> Self {
+        let data = if stateful {
+            Data::load(output_name)
+        } else {
+            Data::new(output_name)
+        };
+
+        Self {
+            prediction_tx,
+            user_rx,
+            als_rx,
+            pending_cooldown: 0,
+            pending: None,
+            data,
+            stateful,
+            initial_brightness: None,
+            last_als: None,
+            next_als: None,
+            next_als_cooldown: 0,
+            output_name: output_name.to_string(),
+        }
     }
 
     fn process(&mut self, lux: &str, luma: u8) {
