@@ -12,16 +12,16 @@ const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 5, 1);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
 
 const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GPU is doing too poor of a job averaging the colors
-const BUFFER_PIXELS: u64 = 500 * 4; // Pre-allocated buffer size, should be enough to fit FINAL_MIP_LEVEL
 const FENCES_TIMEOUT_NS: u64 = 1_000_000_000;
 
 pub struct Vulkan {
     _entry: Entry, // must keep reference to prevent early memory release
     instance: Instance,
     device: Device,
+    physical_device: vk::PhysicalDevice,
     khr_device: KHRDevice,
-    buffer: vk::Buffer,
-    buffer_memory: vk::DeviceMemory,
+    buffer: Option<vk::Buffer>,
+    buffer_memory: Option<vk::DeviceMemory>,
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
     queue: vk::Queue,
@@ -117,47 +117,6 @@ impl Vulkan {
                 .map_err(anyhow::Error::msg)?
         };
 
-        let buffer_info = vk::BufferCreateInfo::default()
-            .size(BUFFER_PIXELS)
-            .usage(vk::BufferUsageFlags::TRANSFER_DST)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-
-        let buffer = unsafe {
-            device
-                .create_buffer(&buffer_info, None)
-                .map_err(anyhow::Error::msg)?
-        };
-
-        let buffer_memory_req = unsafe { device.get_buffer_memory_requirements(buffer) };
-
-        let device_memory_properties =
-            unsafe { instance.get_physical_device_memory_properties(physical_device) };
-
-        let memory_type_index = find_memory_type_index(
-            &buffer_memory_req,
-            &device_memory_properties,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )
-        .ok_or("Unable to find suitable memory type for the buffer")?;
-
-        let allocate_info = vk::MemoryAllocateInfo {
-            allocation_size: buffer_memory_req.size,
-            memory_type_index,
-            ..Default::default()
-        };
-
-        let buffer_memory = unsafe {
-            device
-                .allocate_memory(&allocate_info, None)
-                .map_err(anyhow::Error::msg)?
-        };
-
-        unsafe {
-            device
-                .bind_buffer_memory(buffer, buffer_memory, 0)
-                .map_err(anyhow::Error::msg)?
-        };
-
         let fence_create_info = vk::FenceCreateInfo::default();
         let fence = unsafe {
             device
@@ -168,10 +127,9 @@ impl Vulkan {
         Ok(Self {
             _entry: entry,
             instance,
+            physical_device,
             device,
             khr_device,
-            buffer,
-            buffer_memory,
             command_pool,
             command_buffers,
             queue,
@@ -179,6 +137,8 @@ impl Vulkan {
             image: None,
             image_memory: None,
             image_resolution: None,
+            buffer: None,
+            buffer_memory: None,
             exportable_frame_image: None,
             exportable_frame_image_memory: None,
             exportable_frame_image_fd: None,
@@ -208,6 +168,7 @@ impl Vulkan {
 
     fn luma_percent(&self, frame_image: &vk::Image) -> Result<u8, Box<dyn Error>> {
         let image = self.image.ok_or("Unable to borrow the Vulkan image")?;
+        let buffer_memory = self.buffer_memory.ok_or("Unable to borrow buffer memory")?;
 
         self.begin_commands()?;
 
@@ -224,7 +185,7 @@ impl Vulkan {
 
         let (target_mip_level, mip_width, mip_height) = self.generate_mipmaps(frame_image, &image);
 
-        self.copy_mipmap(&image, target_mip_level, mip_width, mip_height);
+        self.copy_mipmap(&image, target_mip_level, mip_width, mip_height)?;
 
         self.submit_commands()?;
 
@@ -233,7 +194,7 @@ impl Vulkan {
             let buffer_pointer = self
                 .device
                 .map_memory(
-                    self.buffer_memory,
+                    buffer_memory,
                     0,
                     vk::WHOLE_SIZE,
                     vk::MemoryMapFlags::empty(),
@@ -245,7 +206,7 @@ impl Vulkan {
         let result = compute_perceived_lightness_percent(rgbas, true, pixels);
 
         unsafe {
-            self.device.unmap_memory(self.buffer_memory);
+            self.device.unmap_memory(buffer_memory);
         }
 
         Ok(result)
@@ -310,6 +271,64 @@ impl Vulkan {
         if let Some(old_image_memory) = self.image_memory.replace(image_memory) {
             unsafe {
                 self.device.free_memory(old_image_memory, None);
+            }
+        }
+
+        let buffer_size = 4
+            * (frame.width >> (mip_levels - FINAL_MIP_LEVEL))
+            * (frame.height >> (mip_levels - FINAL_MIP_LEVEL));
+
+        let buffer_info = vk::BufferCreateInfo::default()
+            .size(buffer_size as u64)
+            .usage(vk::BufferUsageFlags::TRANSFER_DST)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        let buffer = unsafe {
+            self.device
+                .create_buffer(&buffer_info, None)
+                .map_err(anyhow::Error::msg)?
+        };
+
+        let buffer_memory_req = unsafe { self.device.get_buffer_memory_requirements(buffer) };
+
+        let device_memory_properties = unsafe {
+            self.instance
+                .get_physical_device_memory_properties(self.physical_device)
+        };
+
+        let memory_type_index = find_memory_type_index(
+            &buffer_memory_req,
+            &device_memory_properties,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )
+        .ok_or("Unable to find suitable memory type for the buffer")?;
+
+        let allocate_info = vk::MemoryAllocateInfo {
+            allocation_size: buffer_memory_req.size,
+            memory_type_index,
+            ..Default::default()
+        };
+
+        let buffer_memory = unsafe {
+            self.device
+                .allocate_memory(&allocate_info, None)
+                .map_err(anyhow::Error::msg)?
+        };
+
+        unsafe {
+            self.device
+                .bind_buffer_memory(buffer, buffer_memory, 0)
+                .map_err(anyhow::Error::msg)?
+        };
+
+        if let Some(buffer) = self.buffer.replace(buffer) {
+            unsafe {
+                self.device.destroy_buffer(buffer, None);
+            }
+        }
+        if let Some(buffer_memory) = self.buffer_memory.replace(buffer_memory) {
+            unsafe {
+                self.device.free_memory(buffer_memory, None);
             }
         }
 
@@ -733,7 +752,13 @@ impl Vulkan {
         (target_mip_level, mip_width, mip_height)
     }
 
-    fn copy_mipmap(&self, image: &vk::Image, mip_level: u32, width: u32, height: u32) {
+    fn copy_mipmap(
+        &self,
+        image: &vk::Image,
+        mip_level: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), Box<dyn Error>> {
         self.add_barrier(
             image,
             mip_level,
@@ -759,15 +784,19 @@ impl Vulkan {
                 depth: 1,
             });
 
+        let buffer = self.buffer.ok_or("Unable to borrow buffer")?;
+
         unsafe {
             self.device.cmd_copy_image_to_buffer(
                 self.command_buffers[0],
                 *image,
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                self.buffer,
+                buffer,
                 &[buffer_image_copy],
             );
         }
+
+        Ok(())
     }
 
     fn begin_commands(&self) -> Result<(), Box<dyn Error>> {
@@ -829,8 +858,12 @@ impl Drop for Vulkan {
             }
 
             self.device.destroy_fence(self.fence, None);
-            self.device.destroy_buffer(self.buffer, None);
-            self.device.free_memory(self.buffer_memory, None);
+            if let Some(buffer) = self.buffer {
+                self.device.destroy_buffer(buffer, None);
+            }
+            if let Some(buffer_memory) = self.buffer_memory {
+                self.device.free_memory(buffer_memory, None);
+            }
             self.device
                 .free_command_buffers(self.command_pool, &self.command_buffers);
             self.device.destroy_command_pool(self.command_pool, None);

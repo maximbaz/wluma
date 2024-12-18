@@ -87,9 +87,9 @@ impl Controller {
             (_, Some(current)) if desired == current => (),
             (_, Some(current)) => {
                 let step = if desired > current {
-                    div_ceil(desired - current, TRANSITION_MAX_MS)
+                    (desired - current).div_ceil(TRANSITION_MAX_MS) as i64
                 } else {
-                    -div_ceil(current - desired, TRANSITION_MAX_MS)
+                    -((current - desired).div_ceil(TRANSITION_MAX_MS) as i64)
                 };
                 self.target = Some(Target { desired, step });
             }
@@ -118,10 +118,6 @@ impl Controller {
             _ => unreachable!("Current and target values cannot be None at this point"),
         }
     }
-}
-
-fn div_ceil(x: u64, y: u64) -> i64 {
-    ((x + y - 1) / y) as i64
 }
 
 #[cfg(test)]
