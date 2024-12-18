@@ -12,7 +12,7 @@ const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 5, 1);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
 
 const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GPU is doing too poor of a job averaging the colors
-const BUFFER_PIXELS: u64 = 500 * 4; // Pre-allocated buffer size, should be enough to fit FINAL_MIP_LEVEL
+const BUFFER_PIXELS: u64 = 4096 * 2160 * 4; // Pre-allocated buffer size, should be enough to fit FINAL_MIP_LEVEL
 const FENCES_TIMEOUT_NS: u64 = 1_000_000_000;
 
 pub struct Vulkan {
@@ -243,6 +243,11 @@ impl Vulkan {
         };
 
         let result = compute_perceived_lightness_percent(rgbas, true, pixels);
+
+        if result == 93 {
+            log::debug!("screen is white, screen {mip_width}x{mip_height}");
+            log::debug!("{rgbas:?}");
+        }
 
         unsafe {
             self.device.unmap_memory(self.buffer_memory);
@@ -699,7 +704,7 @@ impl Vulkan {
             0,
         );
 
-        let target_mip_level = mip_levels - FINAL_MIP_LEVEL;
+        let target_mip_level = 0;
         for i in 1..=target_mip_level {
             self.add_barrier(
                 image,
