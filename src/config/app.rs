@@ -39,7 +39,9 @@ pub enum Als {
         video: usize,
         thresholds: HashMap<u64, String>,
     },
-    None,
+    None {
+        luma_to_brightness: Vec<(u8, u64)>,
+    },
 }
 
 #[derive(Debug, Clone)]

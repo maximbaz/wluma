@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
@@ -105,8 +106,11 @@ fn parse() -> Result<app::Config, toml::de::Error> {
             file::Als::Time { thresholds } => app::Als::Time {
                 thresholds: parse_als_thresholds(thresholds),
             },
-            file::Als::None => app::Als::None,
+            file::Als::None { manual }=> app::Als::None {
+                luma_to_brightness: manual.into_iter().map(|(k, v)| (k.parse::<u8>().unwrap() as u8, v)).sorted_by_key(|k| k.0).collect()
+            },
         },
+
     })
 }
 
