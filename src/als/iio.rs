@@ -40,8 +40,11 @@ impl Als {
                         )
                     })
                     .and_then(|e| {
-                        parse_illuminance(e.path())
-                            .or_else(|_| parse_intensity(e.path()))
+                        // TODO should probably start from the `parse_illuminance_input` in the next major version
+                        parse_illuminance_raw(e.path())
+                            .or_else(|_| parse_illuminance_input(e.path()))
+                            .or_else(|_| parse_intensity_raw(e.path()))
+                            .or_else(|_| parse_intensity_rgb(e.path()))
                             .ok()
                     })
             })
@@ -80,24 +83,54 @@ impl super::Als for Als {
     }
 }
 
-fn parse_illuminance(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
-    let open_file = |name: &str| File::open(path.join(name)).map_err(Box::<dyn Error>::from);
-
+fn parse_illuminance_raw(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
     Ok(Illuminance {
-        value: Mutex::new(open_file("in_illuminance_raw")?),
-        scale: open_file("in_illuminance_scale")
+        value: Mutex::new(
+            open_file(&path, "in_illuminance_raw")
+                .or_else(|_| open_file(&path, "in_illuminance0_raw"))?,
+        ),
+        scale: open_file(&path, "in_illuminance_scale")
+            .or_else(|_| open_file(&path, "in_illuminance0_scale"))
             .and_then(|mut f| read(&mut f))
             .unwrap_or(1_f64),
-        offset: open_file("in_illuminance_offset")
+        offset: open_file(&path, "in_illuminance_offset")
+            .or_else(|_| open_file(&path, "in_illuminance0_offset"))
             .and_then(|mut f| read(&mut f))
             .unwrap_or(0_f64),
     })
 }
 
-fn parse_intensity(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
-    Ok(Intensity {
-        r: Mutex::new(File::open(path.join("in_intensity_red_raw"))?),
-        g: Mutex::new(File::open(path.join("in_intensity_green_raw"))?),
-        b: Mutex::new(File::open(path.join("in_intensity_blue_raw"))?),
+fn parse_intensity_raw(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
+    Ok(Illuminance {
+        value: Mutex::new(open_file(&path, "in_intensity_both_raw")?),
+        scale: open_file(&path, "in_intensity_scale")
+            .and_then(|mut f| read(&mut f))
+            .unwrap_or(1_f64),
+        offset: open_file(&path, "in_intensity_offset")
+            .and_then(|mut f| read(&mut f))
+            .unwrap_or(0_f64),
     })
+}
+
+fn parse_illuminance_input(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
+    Ok(Illuminance {
+        value: Mutex::new(
+            open_file(&path, "in_illuminance_input")
+                .or_else(|_| open_file(&path, "in_illuminance0_input"))?,
+        ),
+        scale: 1_f64,
+        offset: 0_f64,
+    })
+}
+
+fn parse_intensity_rgb(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
+    Ok(Intensity {
+        r: Mutex::new(open_file(&path, "in_intensity_red_raw")?),
+        g: Mutex::new(open_file(&path, "in_intensity_green_raw")?),
+        b: Mutex::new(open_file(&path, "in_intensity_blue_raw")?),
+    })
+}
+
+fn open_file(path: &Path, name: &str) -> Result<File, Box<dyn Error>> {
+    File::open(path.join(name)).map_err(Box::<dyn Error>::from)
 }
