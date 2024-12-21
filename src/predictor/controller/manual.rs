@@ -1,7 +1,7 @@
 use crate::frame::capturer::Adjustable;
 use std::sync::mpsc::{Receiver, Sender};
 
-pub struct LumaOnlyController {
+pub struct Controller {
     prediction_tx: Sender<u64>,
     user_rx: Receiver<u64>,
     last_brightness: Option<u64>,
@@ -9,7 +9,7 @@ pub struct LumaOnlyController {
     pre_reduction_brightness: Option<u64>,
 }
 
-impl Adjustable for LumaOnlyController {
+impl Adjustable for Controller {
     fn adjust(&mut self, current_luma: u8) {
         log::debug!("current_luma: {:?}", current_luma);
 
@@ -55,7 +55,7 @@ impl Adjustable for LumaOnlyController {
     }
 }
 
-impl LumaOnlyController {
+impl Controller {
     pub fn new(
         prediction_tx: Sender<u64>,
         user_rx: Receiver<u64>,

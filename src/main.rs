@@ -85,19 +85,21 @@ fn main() {
 
                             let controller: Box<dyn Adjustable>;
                             if luma_to_brightness.is_empty() {
-                                controller = Box::new(predictor::Controller::new(
-                                    prediction_tx,
-                                    user_rx,
-                                    als_rx,
-                                    true,
-                                    &output_name,
-                                ));
+                                controller =
+                                    Box::new(predictor::controller::smart::Controller::new(
+                                        prediction_tx,
+                                        user_rx,
+                                        als_rx,
+                                        true,
+                                        &output_name,
+                                    ));
                             } else {
-                                controller = Box::new(predictor::LumaOnlyController::new(
-                                    prediction_tx,
-                                    user_rx,
-                                    luma_to_brightness,
-                                ));
+                                controller =
+                                    Box::new(predictor::controller::manual::Controller::new(
+                                        prediction_tx,
+                                        user_rx,
+                                        luma_to_brightness,
+                                    ));
                             }
 
                             frame_capturer.run(&output_name, controller)
