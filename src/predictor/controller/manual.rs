@@ -1,16 +1,21 @@
 use crate::frame::capturer::Adjustable;
-use std::sync::mpsc::{Receiver, Sender};
+use crate::predictor::data::Entry;
+use std::{
+    collections::HashMap,
+    sync::mpsc::{Receiver, Sender},
+};
 
 pub struct Controller {
     prediction_tx: Sender<u64>,
     user_rx: Receiver<u64>,
     last_brightness: Option<u64>,
-    luma_to_brightness: Vec<(u8, u64)>,
+    thresholds: HashMap<u8, u64>,
     pre_reduction_brightness: Option<u64>,
 }
 
 impl Adjustable for Controller {
     fn adjust(&mut self, current_luma: u8) {
+        log::debug!("");
         log::debug!("current_luma: {:?}", current_luma);
 
         let current_brightness = self.user_rx.try_iter().last().or(self.last_brightness);
@@ -59,27 +64,28 @@ impl Controller {
     pub fn new(
         prediction_tx: Sender<u64>,
         user_rx: Receiver<u64>,
-        luma_to_brightness: Vec<(u8, u64)>,
+        thresholds: HashMap<u8, u64>,
     ) -> Self {
         Self {
             prediction_tx,
             user_rx,
             last_brightness: None,
-            luma_to_brightness,
+            thresholds,
             pre_reduction_brightness: None,
         }
     }
 
     fn get_brightness_reduction(&mut self, current_brightness: u64, luma: u8) -> u64 {
-        match self
-            .luma_to_brightness
+        let entries = self
+            .thresholds
             .iter()
-            .find(|&&(luma2, _)| luma <= luma2)
-        {
-            Some((_, brightness_reduction)) => {
-                (current_brightness as f64 * (*brightness_reduction) as f64 / 100.) as u64
-            }
-            None => 0,
-        }
+            .map(|(&luma, &percentage_reduction)| Entry {
+                lux: String::default(),
+                luma,
+                brightness: percentage_reduction, // TODO: Entry.brightness should be renamed to something more generic
+            })
+            .collect::<Vec<Entry>>();
+        let brightness_reduction = self.calculate(entries.iter().collect(), luma);
+        (current_brightness as f64 * brightness_reduction as f64 / 100.) as u64
     }
 }

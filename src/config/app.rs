@@ -45,7 +45,7 @@ pub enum Als {
 #[derive(Debug, Clone)]
 pub enum Predictor {
     Smart,
-    Manual { thresholds: Vec<(u8, u64)> },
+    Manual { thresholds: HashMap<u8, u64> },
 }
 
 #[derive(Debug, Clone)]
