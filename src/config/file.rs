@@ -1,10 +1,11 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 pub enum Capturer {
     #[serde(rename = "wlroots")]
     Wlroots,
+    #[default]
     #[serde(rename = "wayland")]
     Wayland,
     #[serde(rename = "wlr-export-dmabuf-unstable-v1")]
@@ -31,9 +32,7 @@ pub enum Als {
         video: usize,
         thresholds: HashMap<String, String>,
     },
-    None {
-        manual: HashMap<String, u64>,
-    },
+    None,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -43,17 +42,29 @@ pub struct OutputByType {
     pub ddcutil: Vec<DdcUtilOutput>,
 }
 
+#[derive(Deserialize, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Predictor {
+    #[default]
+    Smart,
+    Manual {
+        thresholds: HashMap<String, u64>,
+    },
+}
+
 #[derive(Deserialize, Debug)]
 pub struct BacklightOutput {
     pub name: String,
     pub path: String,
-    pub capturer: Capturer,
+    pub capturer: Option<Capturer>,
+    pub predictor: Option<Predictor>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct DdcUtilOutput {
     pub name: String,
-    pub capturer: Capturer,
+    pub capturer: Option<Capturer>,
+    pub predictor: Option<Predictor>,
 }
 
 #[derive(Deserialize, Debug)]

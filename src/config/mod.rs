@@ -11,6 +11,41 @@ pub fn load() -> Result<app::Config, Box<dyn Error>> {
     validate(parse()?)
 }
 
+fn match_predictor(predictor: file::Predictor) -> app::Predictor {
+    match predictor {
+        file::Predictor::Smart => app::Predictor::Smart,
+        file::Predictor::Manual { thresholds } => app::Predictor::Manual {
+            thresholds: thresholds
+                .into_iter()
+                .map(|(k, v)| (k.parse::<u8>().unwrap() as u8, v))
+                .sorted_by_key(|k| k.0)
+                .collect(),
+        },
+    }
+}
+
+fn match_capturer(capturer: file::Capturer) -> app::Capturer {
+    match capturer {
+        file::Capturer::None => app::Capturer::None,
+        file::Capturer::Wlroots => {
+            log::warn!(
+                "Config value capturer=\"wlroots\" is deprecated, use capturer=\"wayland\" instead"
+            );
+            app::Capturer::Wayland(app::WaylandProtocol::Any)
+        }
+        file::Capturer::Wayland => app::Capturer::Wayland(app::WaylandProtocol::Any),
+        file::Capturer::ExtImageCopyCaptureV1 => {
+            app::Capturer::Wayland(app::WaylandProtocol::ExtImageCopyCaptureV1)
+        }
+        file::Capturer::WlrScreencopyUnstableV1 => {
+            app::Capturer::Wayland(app::WaylandProtocol::WlrScreencopyUnstableV1)
+        }
+        file::Capturer::WlrExportDmabufUnstableV1 => {
+            app::Capturer::Wayland(app::WaylandProtocol::WlrExportDmabufUnstableV1)
+        }
+    }
+}
+
 fn parse() -> Result<app::Config, toml::de::Error> {
     let file_config = xdg::BaseDirectories::with_prefix("wluma")
         .ok()
@@ -34,54 +69,16 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     name: o.name,
                     path: o.path,
                     min_brightness: 1,
-                    capturer: match o.capturer {
-                        file::Capturer::None => app::Capturer::None,
-                        file::Capturer::Wlroots => {
-                            log::warn!(
-                                "Config value capturer=\"wlroots\" is deprecated, use capturer=\"wayland\" instead"
-                            );
-                            app::Capturer::Wayland(app::WaylandProtocol::Any)
-                        }
-                        file::Capturer::Wayland => {
-                            app::Capturer::Wayland(app::WaylandProtocol::Any)
-                        }
-                        file::Capturer::ExtImageCopyCaptureV1 => {
-                            app::Capturer::Wayland(app::WaylandProtocol::ExtImageCopyCaptureV1)
-                        }
-                        file::Capturer::WlrScreencopyUnstableV1 => {
-                            app::Capturer::Wayland(app::WaylandProtocol::WlrScreencopyUnstableV1)
-                        }
-                        file::Capturer::WlrExportDmabufUnstableV1 => {
-                            app::Capturer::Wayland(app::WaylandProtocol::WlrExportDmabufUnstableV1)
-                        }
-                    },
+                    capturer: match_capturer(o.capturer.unwrap_or(file::Capturer::default())),
+                    predictor: match_predictor(o.predictor.unwrap_or(file::Predictor::default())),
                 })
             })
             .chain(file_config.output.ddcutil.into_iter().map(|o| {
                 app::Output::DdcUtil(app::DdcUtilOutput {
                     name: o.name,
                     min_brightness: 1,
-                    capturer: match o.capturer {
-                        file::Capturer::None => app::Capturer::None,
-                        file::Capturer::Wlroots => {
-                            log::warn!(
-                                "Config value capturer=\"wlroots\" is deprecated, use capturer=\"wayland\" instead"
-                            );
-                            app::Capturer::Wayland(app::WaylandProtocol::Any)
-                        }
-                        file::Capturer::Wayland => {
-                            app::Capturer::Wayland(app::WaylandProtocol::Any)
-                        }
-                        file::Capturer::ExtImageCopyCaptureV1 => {
-                            app::Capturer::Wayland(app::WaylandProtocol::ExtImageCopyCaptureV1)
-                        }
-                        file::Capturer::WlrScreencopyUnstableV1 => {
-                            app::Capturer::Wayland(app::WaylandProtocol::WlrScreencopyUnstableV1)
-                        }
-                        file::Capturer::WlrExportDmabufUnstableV1 => {
-                            app::Capturer::Wayland(app::WaylandProtocol::WlrExportDmabufUnstableV1)
-                        }
-                    },
+                    capturer: match_capturer(o.capturer.unwrap_or(file::Capturer::default())),
+                    predictor: match_predictor(o.predictor.unwrap_or(file::Predictor::default())),
                 })
             }))
             .chain(file_config.keyboard.into_iter().map(|k| {
@@ -90,6 +87,7 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     path: k.path,
                     min_brightness: 0,
                     capturer: Capturer::None,
+                    predictor: app::Predictor::Smart,
                 })
             }))
             .collect(),
@@ -106,11 +104,8 @@ fn parse() -> Result<app::Config, toml::de::Error> {
             file::Als::Time { thresholds } => app::Als::Time {
                 thresholds: parse_als_thresholds(thresholds),
             },
-            file::Als::None { manual }=> app::Als::None {
-                luma_to_brightness: manual.into_iter().map(|(k, v)| (k.parse::<u8>().unwrap() as u8, v)).sorted_by_key(|k| k.0).collect()
-            },
+            file::Als::None => app::Als::None,
         },
-
     })
 }
 

@@ -39,9 +39,13 @@ pub enum Als {
         video: usize,
         thresholds: HashMap<u64, String>,
     },
-    None {
-        luma_to_brightness: Vec<(u8, u64)>,
-    },
+    None,
+}
+
+#[derive(Debug, Clone)]
+pub enum Predictor {
+    Smart,
+    Manual { thresholds: Vec<(u8, u64)> },
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +54,7 @@ pub struct BacklightOutput {
     pub path: String,
     pub capturer: Capturer,
     pub min_brightness: u64,
+    pub predictor: Predictor,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +62,7 @@ pub struct DdcUtilOutput {
     pub name: String,
     pub capturer: Capturer,
     pub min_brightness: u64,
+    pub predictor: Predictor,
 }
 
 #[derive(Debug, Clone)]

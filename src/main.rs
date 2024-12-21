@@ -33,13 +33,13 @@ fn main() {
         .output
         .iter()
         .filter_map(|output| {
-            let output = output.clone();
+            let output_clone = output.clone();
 
             let (als_tx, als_rx) = mpsc::channel();
             let (user_tx, user_rx) = mpsc::channel();
             let (prediction_tx, prediction_rx) = mpsc::channel();
 
-            let (output_name, output_capturer) = match output.clone() {
+            let (output_name, output_capturer) = match output_clone.clone() {
                 config::Output::Backlight(cfg) => (cfg.name, cfg.capturer),
                 config::Output::DdcUtil(cfg) => (cfg.name, cfg.capturer),
             };
@@ -65,9 +65,9 @@ fn main() {
                         })
                         .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
 
-                    let luma_to_brightness = match &config.als {
-                        config::Als::None { luma_to_brightness } => luma_to_brightness.clone(),
-                        _ => Vec::default(),
+                    let predictor = match output_clone.clone() {
+                        config::Output::Backlight(backlight_output) => backlight_output.predictor,
+                        config::Output::DdcUtil(ddcutil_output) => ddcutil_output.predictor,
                     };
                     let thread_name = format!("predictor-{}", output_name);
                     std::thread::Builder::new()
@@ -84,23 +84,26 @@ fn main() {
                                 };
 
                             let controller: Box<dyn Adjustable>;
-                            if luma_to_brightness.is_empty() {
-                                controller =
-                                    Box::new(predictor::controller::smart::Controller::new(
-                                        prediction_tx,
-                                        user_rx,
-                                        als_rx,
-                                        true,
-                                        &output_name,
-                                    ));
-                            } else {
-                                controller =
-                                    Box::new(predictor::controller::manual::Controller::new(
-                                        prediction_tx,
-                                        user_rx,
-                                        luma_to_brightness,
-                                    ));
-                            }
+                            match predictor {
+                                config::Predictor::Smart => {
+                                    controller =
+                                        Box::new(predictor::controller::smart::Controller::new(
+                                            prediction_tx,
+                                            user_rx,
+                                            als_rx,
+                                            true,
+                                            &output_name,
+                                        ));
+                                }
+                                config::Predictor::Manual { thresholds } => {
+                                    controller =
+                                        Box::new(predictor::controller::manual::Controller::new(
+                                            prediction_tx,
+                                            user_rx,
+                                            thresholds.clone(),
+                                        ));
+                                }
+                            };
 
                             frame_capturer.run(&output_name, controller)
                         })
