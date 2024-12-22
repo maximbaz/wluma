@@ -5,12 +5,15 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
+const COOLDOWN_STEPS: u8 = 15;
+
 pub struct Controller {
     prediction_tx: Sender<u64>,
     user_rx: Receiver<u64>,
     last_brightness: Option<u64>,
     thresholds: HashMap<u8, u64>,
     pre_reduction_brightness: Option<u64>,
+    cooldown: u8,
 }
 
 impl Adjustable for Controller {
@@ -40,13 +43,15 @@ impl Adjustable for Controller {
                 self.last_brightness
             );
 
-            self.prediction_tx
-                .send(
-                    self.pre_reduction_brightness
-                        .unwrap()
-                        .saturating_sub(brightness_reduction),
-                )
-                .expect("Unable to send predicted brightness value, channel is dead");
+            if self.cooldown == 0 {
+                self.prediction_tx
+                    .send(
+                        self.pre_reduction_brightness
+                            .unwrap()
+                            .saturating_sub(brightness_reduction),
+                    )
+                    .expect("Unable to send predicted brightness value, channel is dead");
+            }
         } else {
             log::debug!(
                 "self.last_brightness (= {:?}) != current_brightness",
@@ -56,7 +61,10 @@ impl Adjustable for Controller {
             self.pre_reduction_brightness =
                 Some(current_brightness.unwrap() + brightness_reduction);
             self.last_brightness = current_brightness;
+            self.cooldown = COOLDOWN_STEPS;
         }
+
+        self.cooldown = self.cooldown.saturating_sub(1);
     }
 }
 
@@ -72,6 +80,7 @@ impl Controller {
             last_brightness: None,
             thresholds,
             pre_reduction_brightness: None,
+            cooldown: 0,
         }
     }
 
