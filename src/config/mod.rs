@@ -16,7 +16,14 @@ fn match_predictor(predictor: file::Predictor) -> app::Predictor {
         file::Predictor::Manual { thresholds } => app::Predictor::Manual {
             thresholds: thresholds
                 .into_iter()
-                .map(|(k, v)| (k.parse::<u8>().unwrap(), v))
+                .map(|(k, v)| {
+                    (
+                        k,
+                        v.into_iter()
+                            .map(|(k, v)| (k.parse::<u8>().unwrap(), v))
+                            .collect(),
+                    )
+                })
                 .collect(),
         },
     }

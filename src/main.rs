@@ -88,7 +88,7 @@ fn main() {
                                     Box::new(predictor::controller::manual::Controller::new(
                                         prediction_tx,
                                         user_rx,
-                                        thresholds.clone(),
+                                        thresholds.get("none").unwrap().clone(),
                                     )) as Box<dyn Adjustable>
                                 }
                                 config::Predictor::Smart => {

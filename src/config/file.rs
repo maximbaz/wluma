@@ -48,7 +48,7 @@ pub enum Predictor {
     #[default]
     Smart,
     Manual {
-        thresholds: HashMap<String, u64>,
+        thresholds: HashMap<String, HashMap<String, u64>>,
     },
 }
 
