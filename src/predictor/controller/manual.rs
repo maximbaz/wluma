@@ -137,4 +137,22 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_change_in_luma() -> Result<(), Box<dyn Error>> {
+        let (mut controller, user_tx, prediction_rx) = setup()?;
+
+        user_tx.send(100)?;
+
+        controller.adjust(50);
+        assert_eq!(prediction_rx.recv()?, 100);
+
+        controller.adjust(10);
+        assert_eq!(prediction_rx.recv()?, 120);
+
+        controller.adjust(80);
+        assert_eq!(prediction_rx.recv()?, 89);
+
+        Ok(())
+    }
 }
