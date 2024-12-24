@@ -16,7 +16,7 @@ fn match_predictor(predictor: file::Predictor) -> app::Predictor {
         file::Predictor::Manual { thresholds } => app::Predictor::Manual {
             thresholds: thresholds
                 .into_iter()
-                .map(|(k, v)| (k.parse::<u8>().unwrap() as u8, v))
+                .map(|(k, v)| (k.parse::<u8>().unwrap(), v))
                 .collect(),
         },
     }
@@ -67,16 +67,16 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     name: o.name,
                     path: o.path,
                     min_brightness: 1,
-                    capturer: match_capturer(o.capturer.unwrap_or(file::Capturer::default())),
-                    predictor: match_predictor(o.predictor.unwrap_or(file::Predictor::default())),
+                    capturer: match_capturer(o.capturer.unwrap_or_default()),
+                    predictor: match_predictor(o.predictor.unwrap_or_default()),
                 })
             })
             .chain(file_config.output.ddcutil.into_iter().map(|o| {
                 app::Output::DdcUtil(app::DdcUtilOutput {
                     name: o.name,
                     min_brightness: 1,
-                    capturer: match_capturer(o.capturer.unwrap_or(file::Capturer::default())),
-                    predictor: match_predictor(o.predictor.unwrap_or(file::Predictor::default())),
+                    capturer: match_capturer(o.capturer.unwrap_or_default()),
+                    predictor: match_predictor(o.predictor.unwrap_or_default()),
                 })
             }))
             .chain(file_config.keyboard.into_iter().map(|k| {

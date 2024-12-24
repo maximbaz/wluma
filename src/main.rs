@@ -83,25 +83,22 @@ fn main() {
                                     }
                                 };
 
-                            let controller: Box<dyn Adjustable>;
-                            match predictor {
-                                config::Predictor::Smart => {
-                                    controller =
-                                        Box::new(predictor::controller::smart::Controller::new(
-                                            prediction_tx,
-                                            user_rx,
-                                            als_rx,
-                                            true,
-                                            &output_name,
-                                        ));
-                                }
+                            let controller = match predictor {
                                 config::Predictor::Manual { thresholds } => {
-                                    controller =
-                                        Box::new(predictor::controller::manual::Controller::new(
-                                            prediction_tx,
-                                            user_rx,
-                                            thresholds.clone(),
-                                        ));
+                                    Box::new(predictor::controller::manual::Controller::new(
+                                        prediction_tx,
+                                        user_rx,
+                                        thresholds.clone(),
+                                    )) as Box<dyn Adjustable>
+                                }
+                                config::Predictor::Smart => {
+                                    Box::new(predictor::controller::smart::Controller::new(
+                                        prediction_tx,
+                                        user_rx,
+                                        als_rx,
+                                        true,
+                                        &output_name,
+                                    )) as Box<dyn Adjustable>
                                 }
                             };
 
