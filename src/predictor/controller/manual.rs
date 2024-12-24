@@ -101,3 +101,40 @@ impl Controller {
         (current_brightness as f64 * brightness_reduction as f64 / 100.) as u64
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::sync::mpsc;
+
+    fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>), Box<dyn Error>> {
+        let (user_tx, user_rx) = mpsc::channel();
+        let (prediction_tx, prediction_rx) = mpsc::channel();
+        let thresholds: HashMap<u8, u64> = [(0, 0), (50, 30), (100, 60)].iter().cloned().collect();
+
+        user_tx.send(0)?;
+        let controller = Controller::new(prediction_tx, user_rx, thresholds);
+        Ok((controller, user_tx, prediction_rx))
+    }
+
+    #[test]
+    fn test_get_brightness_reduction() -> Result<(), Box<dyn Error>> {
+        let (mut controller, _, _) = setup()?;
+
+        assert_eq!(controller.get_brightness_reduction(100, 0), 0);
+        assert_eq!(controller.get_brightness_reduction(100, 10), 10);
+        assert_eq!(controller.get_brightness_reduction(100, 20), 18);
+        assert_eq!(controller.get_brightness_reduction(100, 30), 24);
+        assert_eq!(controller.get_brightness_reduction(100, 40), 28);
+        assert_eq!(controller.get_brightness_reduction(100, 50), 30);
+        assert_eq!(controller.get_brightness_reduction(100, 60), 31);
+        assert_eq!(controller.get_brightness_reduction(100, 70), 35);
+        assert_eq!(controller.get_brightness_reduction(100, 80), 41);
+        assert_eq!(controller.get_brightness_reduction(100, 90), 49);
+        assert_eq!(controller.get_brightness_reduction(100, 100), 60);
+
+        Ok(())
+    }
+}
