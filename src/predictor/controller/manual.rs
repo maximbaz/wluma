@@ -155,4 +155,23 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_change_in_brightness_by_user() -> Result<(), Box<dyn Error>> {
+        let (mut controller, user_tx, prediction_rx) = setup()?;
+
+        user_tx.send(100)?;
+        controller.adjust(50);
+        assert_eq!(prediction_rx.recv()?, 100);
+
+        user_tx.send(123)?;
+        controller.adjust(50);
+        assert_eq!(prediction_rx.try_recv().is_err(), true);
+
+        user_tx.send(1)?;
+        controller.adjust(50);
+        assert_eq!(prediction_rx.try_recv().is_err(), true);
+
+        Ok(())
+    }
 }
