@@ -23,6 +23,9 @@ impl Adjustable for Controller {
 
         let current_brightness = self.user_rx.try_iter().last().or(self.last_brightness);
         log::debug!("current_brightness: {:?}", current_brightness);
+        if self.last_brightness.is_none() {
+            self.last_brightness = current_brightness;
+        }
 
         let brightness_reduction =
             self.get_brightness_reduction(current_brightness.unwrap(), current_luma);
