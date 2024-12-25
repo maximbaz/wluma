@@ -8,7 +8,7 @@ use std::ffi::CString;
 use std::ops::Drop;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
-const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 5, 1);
+const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 6, 0);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
 
 const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GPU is doing too poor of a job averaging the colors
