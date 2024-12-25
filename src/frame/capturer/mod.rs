@@ -7,14 +7,19 @@ pub mod wayland;
 pub trait Adjustable {
     fn adjust(&mut self, luma: u8);
 
-    fn calculate(&self, entries: Vec<&Entry>, luma: u8) -> u64 {
+    fn interpolate(&self, entries: &[Entry], lux: &str, luma: u8) -> Option<u64> {
         let points = entries
             .iter()
+            .filter(|e| e.lux == lux)
             .map(|entry| {
                 let distance = (luma as f64 - entry.luma as f64).abs();
                 (entry.brightness as f64, distance)
             })
             .collect_vec();
+
+        if points.is_empty() {
+            return None;
+        }
 
         let points = points
             .iter()
@@ -41,7 +46,7 @@ pub trait Adjustable {
             .map(|p| p.0 * p.2 / distance_denominator)
             .sum::<f64>() as u64;
 
-        prediction
+        Some(prediction)
     }
 }
 

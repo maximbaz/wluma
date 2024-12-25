@@ -1,11 +1,14 @@
+use itertools::Itertools;
+
 use crate::frame::capturer::Adjustable;
 use crate::predictor::data::Entry;
 use std::{
     collections::HashMap,
     sync::mpsc::{Receiver, Sender},
+    time::Duration,
 };
 
-const COOLDOWN_STEPS: u8 = 15;
+use super::{INITIAL_TIMEOUT_SECS, PENDING_COOLDOWN_RESET};
 
 pub struct Controller {
     prediction_tx: Sender<u64>,
@@ -13,49 +16,25 @@ pub struct Controller {
     last_brightness: Option<u64>,
     thresholds: HashMap<u8, u64>,
     pre_reduction_brightness: Option<u64>,
-    cooldown: u8,
+    pending_cooldown: u8,
 }
 
 impl Adjustable for Controller {
-    fn adjust(&mut self, current_luma: u8) {
-        let current_brightness = self.user_rx.try_iter().last().or(self.last_brightness);
+    fn adjust(&mut self, luma: u8) {
+        // TODO
+        let lux = "none";
+
         if self.last_brightness.is_none() {
-            self.last_brightness = current_brightness;
+            // Brightness controller is expected to send the initial value on this channel asap
+            let initial_brightness = self
+                .user_rx
+                .recv_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
+                .expect("Did not receive initial brightness value in time");
+
+            self.process_brightness_change(initial_brightness, lux, luma);
         }
 
-        let brightness_reduction =
-            self.get_brightness_reduction(current_brightness.unwrap(), current_luma);
-
-        if self.pre_reduction_brightness.is_none() {
-            self.pre_reduction_brightness =
-                Some(current_brightness.unwrap() + brightness_reduction);
-        }
-
-        if self.last_brightness == current_brightness {
-            if self.cooldown == 0 {
-                let prediction = self
-                    .pre_reduction_brightness
-                    .unwrap()
-                    .saturating_sub(brightness_reduction);
-
-                log::trace!(
-                    "Prediction: {} (lux: {}, luma: {})",
-                    prediction,
-                    "none",
-                    current_luma
-                );
-                self.prediction_tx
-                    .send(prediction)
-                    .expect("Unable to send predicted brightness value, channel is dead");
-            }
-        } else {
-            self.pre_reduction_brightness =
-                Some(current_brightness.unwrap() + brightness_reduction);
-            self.last_brightness = current_brightness;
-            self.cooldown = COOLDOWN_STEPS;
-        }
-
-        self.cooldown = self.cooldown.saturating_sub(1);
+        self.process(lux, luma);
     }
 }
 
@@ -71,22 +50,63 @@ impl Controller {
             last_brightness: None,
             thresholds,
             pre_reduction_brightness: None,
-            cooldown: 0,
+            pending_cooldown: 0,
         }
     }
 
-    fn get_brightness_reduction(&mut self, current_brightness: u64, luma: u8) -> u64 {
+    fn process(&mut self, lux: &str, luma: u8) {
+        let current_brightness = self
+            .user_rx
+            .try_iter()
+            .last()
+            .or(self.last_brightness)
+            .expect("Current brightness value must be known by now");
+
+        if self.last_brightness != Some(current_brightness) {
+            self.process_brightness_change(current_brightness, lux, luma);
+            self.pending_cooldown = PENDING_COOLDOWN_RESET;
+        } else if self.pending_cooldown > 0 {
+            self.pending_cooldown -= 1;
+        } else {
+            self.predict(current_brightness, lux, luma);
+        }
+    }
+
+    fn predict(&mut self, current_brightness: u64, lux: &str, luma: u8) {
+        let brightness_reduction = self.get_brightness_reduction(current_brightness, lux, luma);
+
+        let prediction = self
+            .pre_reduction_brightness
+            .expect("Pre-reduction brightness value must be known by now")
+            .saturating_sub(brightness_reduction);
+
+        log::trace!("Prediction: {} (lux: {}, luma: {})", prediction, lux, luma);
+        self.prediction_tx
+            .send(prediction)
+            .expect("Unable to send predicted brightness value, channel is dead");
+    }
+
+    fn get_brightness_reduction(&mut self, current_brightness: u64, lux: &str, luma: u8) -> u64 {
         let entries = self
             .thresholds
             .iter()
             .map(|(&luma, &percentage_reduction)| Entry {
-                lux: String::default(),
+                lux: "none".to_string(),
                 luma,
-                brightness: percentage_reduction, // TODO: Entry.brightness should be renamed to something more generic
+                brightness: percentage_reduction,
             })
-            .collect::<Vec<Entry>>();
-        let brightness_reduction = self.calculate(entries.iter().collect(), luma);
-        (current_brightness as f64 * brightness_reduction as f64 / 100.) as u64
+            .collect_vec();
+
+        let brightness_reduction = self.interpolate(&entries, lux, luma);
+
+        // TODO add test for no curve for current ALS
+        (current_brightness as f64 * brightness_reduction.unwrap_or(0) as f64 / 100.) as u64
+    }
+
+    fn process_brightness_change(&mut self, new_brightness: u64, lux: &str, luma: u8) {
+        let brightness_reduction = self.get_brightness_reduction(new_brightness, lux, luma);
+        self.pre_reduction_brightness = Some(new_brightness + brightness_reduction);
+        self.last_brightness = Some(new_brightness);
     }
 }
 
@@ -102,26 +122,26 @@ mod tests {
         let (prediction_tx, prediction_rx) = mpsc::channel();
         let thresholds: HashMap<u8, u64> = [(0, 0), (50, 30), (100, 60)].iter().cloned().collect();
 
-        user_tx.send(0)?;
         let controller = Controller::new(prediction_tx, user_rx, thresholds);
         Ok((controller, user_tx, prediction_rx))
     }
 
     #[test]
     fn test_get_brightness_reduction() -> Result<(), Box<dyn Error>> {
+        let lux = "none";
         let (mut controller, _, _) = setup()?;
 
-        assert_eq!(controller.get_brightness_reduction(100, 0), 0);
-        assert_eq!(controller.get_brightness_reduction(100, 10), 10);
-        assert_eq!(controller.get_brightness_reduction(100, 20), 18);
-        assert_eq!(controller.get_brightness_reduction(100, 30), 24);
-        assert_eq!(controller.get_brightness_reduction(100, 40), 28);
-        assert_eq!(controller.get_brightness_reduction(100, 50), 30);
-        assert_eq!(controller.get_brightness_reduction(100, 60), 31);
-        assert_eq!(controller.get_brightness_reduction(100, 70), 35);
-        assert_eq!(controller.get_brightness_reduction(100, 80), 41);
-        assert_eq!(controller.get_brightness_reduction(100, 90), 49);
-        assert_eq!(controller.get_brightness_reduction(100, 100), 60);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 0), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 10), 10);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 20), 18);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 30), 24);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 40), 28);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 50), 30);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 60), 31);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 70), 35);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 80), 41);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 90), 49);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 100), 60);
 
         Ok(())
     }

@@ -1,12 +1,11 @@
 use crate::predictor::data::{Data, Entry};
-use itertools::Itertools;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use crate::frame::capturer::Adjustable;
 
-const INITIAL_TIMEOUT_SECS: u64 = 5;
-const PENDING_COOLDOWN_RESET: u8 = 15;
+use super::{INITIAL_TIMEOUT_SECS, PENDING_COOLDOWN_RESET};
+
 const NEXT_ALS_COOLDOWN_RESET: u8 = 15;
 
 pub struct Controller {
@@ -155,30 +154,19 @@ impl Controller {
     }
 
     fn predict(&mut self, lux: &str, luma: u8) {
-        let entries = self
-            .data
-            .entries
-            .iter()
-            .filter(|e| e.lux == lux)
-            .collect_vec();
-
-        if entries.is_empty() {
-            return;
+        if let Some(prediction) = self.interpolate(&self.data.entries, lux, luma) {
+            log::trace!("Prediction: {} (lux: {}, luma: {})", prediction, lux, luma);
+            self.prediction_tx
+                .send(prediction)
+                .expect("Unable to send predicted brightness value, channel is dead");
         }
-
-        let prediction = self.calculate(entries, luma);
-
-        log::trace!("Prediction: {} (lux: {}, luma: {})", prediction, lux, luma);
-        self.prediction_tx
-            .send(prediction)
-            .expect("Unable to send predicted brightness value, channel is dead");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use itertools::iproduct;
+    use itertools::{iproduct, Itertools};
     use std::collections::HashSet;
     use std::error::Error;
     use std::sync::mpsc;
