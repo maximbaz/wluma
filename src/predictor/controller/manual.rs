@@ -1,6 +1,5 @@
 use itertools::Itertools;
 
-use crate::frame::capturer::Adjustable;
 use crate::predictor::data::Entry;
 use std::{
     collections::HashMap,
@@ -8,7 +7,9 @@ use std::{
     time::Duration,
 };
 
-use super::{INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET};
+use super::{
+    Controller as _, INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET,
+};
 
 pub struct Controller {
     prediction_tx: Sender<u64>,
@@ -23,7 +24,7 @@ pub struct Controller {
     next_als_cooldown: u8,
 }
 
-impl Adjustable for Controller {
+impl super::Controller for Controller {
     fn adjust(&mut self, luma: u8) {
         if self.last_als.is_none() {
             // ALS controller is expected to send the initial value on this channel asap

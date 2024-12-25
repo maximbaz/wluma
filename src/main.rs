@@ -1,8 +1,6 @@
 use itertools::Itertools;
 use std::sync::mpsc;
 
-use crate::frame::capturer::Adjustable;
-
 mod als;
 mod brightness;
 mod config;
@@ -90,7 +88,8 @@ fn main() {
                                         user_rx,
                                         als_rx,
                                         thresholds,
-                                    )) as Box<dyn Adjustable>
+                                    ))
+                                        as Box<dyn predictor::Controller>
                                 }
                                 config::Predictor::Smart => {
                                     Box::new(predictor::controller::smart::Controller::new(
@@ -99,7 +98,8 @@ fn main() {
                                         als_rx,
                                         true,
                                         &output_name,
-                                    )) as Box<dyn Adjustable>
+                                    ))
+                                        as Box<dyn predictor::Controller>
                                 }
                             };
 
