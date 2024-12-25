@@ -99,7 +99,6 @@ impl Controller {
 
         let brightness_reduction = self.interpolate(&entries, lux, luma);
 
-        // TODO add test for no curve for current ALS
         (current_brightness as f64 * brightness_reduction.unwrap_or(0) as f64 / 100.) as u64
     }
 
@@ -142,6 +141,27 @@ mod tests {
         assert_eq!(controller.get_brightness_reduction(100, lux, 80), 41);
         assert_eq!(controller.get_brightness_reduction(100, lux, 90), 49);
         assert_eq!(controller.get_brightness_reduction(100, lux, 100), 60);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_brightness_reduction_for_not_configured_als_threshold() -> Result<(), Box<dyn Error>>
+    {
+        let lux = "not-configured-als-threshold";
+        let (mut controller, _, _) = setup()?;
+
+        assert_eq!(controller.get_brightness_reduction(100, lux, 0), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 10), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 20), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 30), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 40), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 50), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 60), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 70), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 80), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 90), 0);
+        assert_eq!(controller.get_brightness_reduction(100, lux, 100), 0);
 
         Ok(())
     }
