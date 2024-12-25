@@ -44,7 +44,7 @@ pub enum Als {
 
 #[derive(Debug, Clone)]
 pub enum Predictor {
-    Smart,
+    Adaptive,
     Manual {
         thresholds: HashMap<String, HashMap<u8, u64>>,
     },

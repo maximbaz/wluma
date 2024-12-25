@@ -46,7 +46,7 @@ pub struct OutputByType {
 #[serde(rename_all = "lowercase")]
 pub enum Predictor {
     #[default]
-    Smart,
+    Adaptive,
     Manual {
         thresholds: HashMap<String, HashMap<String, u64>>,
     },

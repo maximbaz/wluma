@@ -1,8 +1,8 @@
 use super::data::Entry;
 use itertools::Itertools;
 
+pub mod adaptive;
 pub mod manual;
-pub mod smart;
 
 const INITIAL_TIMEOUT_SECS: u64 = 5;
 const PENDING_COOLDOWN_RESET: u8 = 15;

@@ -91,8 +91,8 @@ fn main() {
                                     ))
                                         as Box<dyn predictor::Controller>
                                 }
-                                config::Predictor::Smart => {
-                                    Box::new(predictor::controller::smart::Controller::new(
+                                config::Predictor::Adaptive => {
+                                    Box::new(predictor::controller::adaptive::Controller::new(
                                         prediction_tx,
                                         user_rx,
                                         als_rx,

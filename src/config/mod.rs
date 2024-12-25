@@ -12,7 +12,7 @@ pub fn load() -> Result<app::Config, Box<dyn Error>> {
 
 fn match_predictor(predictor: file::Predictor) -> app::Predictor {
     match predictor {
-        file::Predictor::Smart => app::Predictor::Smart,
+        file::Predictor::Adaptive => app::Predictor::Adaptive,
         file::Predictor::Manual { thresholds } => app::Predictor::Manual {
             thresholds: thresholds
                 .into_iter()
@@ -92,7 +92,7 @@ fn parse() -> Result<app::Config, toml::de::Error> {
                     path: k.path,
                     min_brightness: 0,
                     capturer: Capturer::None,
-                    predictor: app::Predictor::Smart,
+                    predictor: app::Predictor::Adaptive,
                 })
             }))
             .collect(),
