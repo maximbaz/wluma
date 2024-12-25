@@ -1,10 +1,9 @@
-use crate::predictor::data::{Data, Entry};
-use std::sync::mpsc::{Receiver, Sender};
-use std::time::Duration;
-
 use super::{
     Controller as _, INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET,
 };
+use crate::predictor::data::{Data, Entry};
+use std::sync::mpsc::{Receiver, Sender};
+use std::time::Duration;
 
 pub struct Controller {
     prediction_tx: Sender<u64>,

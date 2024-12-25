@@ -1,3 +1,3 @@
 pub mod controller;
-pub mod data;
+mod data;
 pub use controller::Controller;

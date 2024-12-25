@@ -1,14 +1,12 @@
-use itertools::Itertools;
-
+use super::{
+    Controller as _, INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET,
+};
 use crate::predictor::data::Entry;
+use itertools::Itertools;
 use std::{
     collections::HashMap,
     sync::mpsc::{Receiver, Sender},
     time::Duration,
-};
-
-use super::{
-    Controller as _, INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET,
 };
 
 pub struct Controller {
