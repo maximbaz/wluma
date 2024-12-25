@@ -120,8 +120,8 @@ thresholds.<als threshold name> = {<luma> = <brightness reduction percentage>}
 
 The example config above expresses the following intention:
 
-- During the day, the screen brightness will be reduces upmost by 10% of the value you set - fully black screen does not reduce the brightness at all, fully white screen reduces it by 10%, screen contents with "whiteness" of 70% will reduce the brightness by 7%, etc.
-- During the day, the screen brightness will be reduces upmost by 60% of the value you set - using the same logic as above.
+- During the day, the screen brightness will be reduced upmost by 10% of the value you set - fully black screen does not reduce the brightness at all, fully white screen reduces it by 10%, screen contents with "whiteness" of 70% will reduce the brightness by 7%, etc.
+- During the day, the screen brightness will be reduced upmost by 60% of the value you set - using the same logic as above.
 
 ## Run
 
