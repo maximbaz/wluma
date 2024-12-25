@@ -18,49 +18,37 @@ pub struct Controller {
 
 impl Adjustable for Controller {
     fn adjust(&mut self, current_luma: u8) {
-        log::debug!("");
-        log::debug!("current_luma: {:?}", current_luma);
-
         let current_brightness = self.user_rx.try_iter().last().or(self.last_brightness);
-        log::debug!("current_brightness: {:?}", current_brightness);
         if self.last_brightness.is_none() {
             self.last_brightness = current_brightness;
         }
 
         let brightness_reduction =
             self.get_brightness_reduction(current_brightness.unwrap(), current_luma);
-        log::debug!("brightness_reduction: {:?}", brightness_reduction);
 
         if self.pre_reduction_brightness.is_none() {
             self.pre_reduction_brightness =
                 Some(current_brightness.unwrap() + brightness_reduction);
         }
-        log::debug!(
-            "pre_reduction_brightness: {:?}",
-            self.pre_reduction_brightness
-        );
 
         if self.last_brightness == current_brightness {
-            log::debug!(
-                "self.last_brightness (= {:?}) == current_brightness",
-                self.last_brightness
-            );
-
             if self.cooldown == 0 {
+                let prediction = self
+                    .pre_reduction_brightness
+                    .unwrap()
+                    .saturating_sub(brightness_reduction);
+
+                log::trace!(
+                    "Prediction: {} (lux: {}, luma: {})",
+                    prediction,
+                    "none",
+                    current_luma
+                );
                 self.prediction_tx
-                    .send(
-                        self.pre_reduction_brightness
-                            .unwrap()
-                            .saturating_sub(brightness_reduction),
-                    )
+                    .send(prediction)
                     .expect("Unable to send predicted brightness value, channel is dead");
             }
         } else {
-            log::debug!(
-                "self.last_brightness (= {:?}) != current_brightness",
-                self.last_brightness
-            );
-
             self.pre_reduction_brightness =
                 Some(current_brightness.unwrap() + brightness_reduction);
             self.last_brightness = current_brightness;
