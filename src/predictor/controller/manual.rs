@@ -188,17 +188,24 @@ mod tests {
     fn test_change_in_brightness_by_user() -> Result<(), Box<dyn Error>> {
         let (mut controller, user_tx, prediction_rx) = setup()?;
 
+        // Initial brightness is used to predict right away
         user_tx.send(100)?;
         controller.adjust(50);
         assert_eq!(prediction_rx.recv()?, 100);
 
+        // Consequent user change causes prediction only after cooldown
         user_tx.send(123)?;
-        controller.adjust(50);
-        assert_eq!(prediction_rx.try_recv().is_err(), true);
+        for i in 0..=PENDING_COOLDOWN_RESET {
+            // User doesn't change brightness anymore, so even if lux or luma change, we are in cooldown period
+            controller.adjust(i);
+            assert_eq!(PENDING_COOLDOWN_RESET - i, controller.pending_cooldown);
+            assert!(prediction_rx.try_recv().is_err());
+        }
 
-        user_tx.send(1)?;
+        // One final call will generate the actual prediction
         controller.adjust(50);
-        assert_eq!(prediction_rx.try_recv().is_err(), true);
+        assert_eq!(0, controller.pending_cooldown);
+        assert_eq!(87, prediction_rx.recv()?);
 
         Ok(())
     }
