@@ -36,7 +36,7 @@ pub struct Capturer {
     output: Option<WlOutput>,
     output_global_id: Option<u32>,
     pending_frame: Option<Object>,
-    controller: Option<Controller>,
+    controller: Option<Box<dyn Controller>>,
     // linux-dmabuf-v1
     dmabuf: Option<ZwpLinuxDmabufV1>,
     wl_buffer: Option<WlBuffer>,
@@ -84,7 +84,7 @@ impl Capturer {
 }
 
 impl super::Capturer for Capturer {
-    fn run(&mut self, output_name: &str, controller: Controller) {
+    fn run(&mut self, output_name: &str, controller: Box<dyn Controller>) {
         let connection =
             Connection::connect_to_env().expect("Unable to connect to Wayland display");
         let display = connection.display();

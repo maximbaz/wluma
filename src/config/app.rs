@@ -43,11 +43,20 @@ pub enum Als {
 }
 
 #[derive(Debug, Clone)]
+pub enum Predictor {
+    Adaptive,
+    Manual {
+        thresholds: HashMap<String, HashMap<u8, u64>>,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct BacklightOutput {
     pub name: String,
     pub path: String,
     pub capturer: Capturer,
     pub min_brightness: u64,
+    pub predictor: Predictor,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +64,7 @@ pub struct DdcUtilOutput {
     pub name: String,
     pub capturer: Capturer,
     pub min_brightness: u64,
+    pub predictor: Predictor,
 }
 
 #[derive(Debug, Clone)]

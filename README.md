@@ -86,6 +86,43 @@ The `capturer` field will determine how screen contents will be captured. Curren
 
 _Tip:_ run `wluma` with `RUST_LOG=debug` and `capturer="wayland"` to see which protocols are supported by your Wayland compositor, and which one `wluma` chooses to use.
 
+#### Algorithm
+
+The default algorithm that `wluma` uses is called `adaptive`, which is when it learns from you as you continue adjusting brightness manually. It will eventually figure out patterns in how you tend to adjust brightness in dark and lit conditions and depending on what is currently being displayed on the screen, and will beging to do it automatically for you.
+
+If you instead want to preserve control over absolute brightness value, but let `wluma` only do relative adjustments, there is an alternative algorithm called `manual`. It can be useful if you feel like `wluma` is unable to learn the patterns, for example because you don't have a real ambient light sensor, and neither of the alternative ALS inputs are able to capture the real light conditions precisely enough.
+
+Here's how you enable the manual algorithm in the config:
+
+```toml
+[als.time]
+thresholds = { 0 = "night", 8 = "day", 18 = "night" }
+
+[[output.backlight]]
+name = "eDP-1"
+path = "/sys/class/backlight/intel_backlight"
+capturer = "wayland"
+[output.backlight.predictor.manual]
+thresholds.day = { 0 = 0, 100 = 10 }
+thresholds.night = { 0 = 0, 100 = 60 }
+```
+
+In other words, you activate the predictor for a given `output` using `[output.backlight.predictor.manual]`, and then you define thresholds for each ALS condition using the following syntax:
+
+```
+thresholds.<als threshold name> = {<luma> = <brightness reduction percentage>}
+```
+
+- `luma` is the "whiteness" of your screen contents, measured in percentage, from `0` to `100`.
+- Current screen brightness (that you set manually) will be reduced by the corresponding `brightness reduction percentage` based on what is currently being displayed on the screen.
+- `als threshold name` is the custom name that you define in ALS thresholds. When using `[als.none]`, the `als threshold name` is `none`.
+- You can define as many entries within each threshold as you want (up to 100, for every single `luma` value). The algorithm will interpolate between the values you define.
+
+The example config above expresses the following intention:
+
+- During the day, the screen brightness will be reduced upmost by 10% of the value you set - fully black screen does not reduce the brightness at all, fully white screen reduces it by 10%, screen contents with "whiteness" of 70% will reduce the brightness by 7%, etc.
+- During the day, the screen brightness will be reduced upmost by 60% of the value you set - using the same logic as above.
+
 ## Run
 
 To run the app, simply launch `wluma` or use the provided systemd user service.

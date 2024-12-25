@@ -1,11 +1,9 @@
+use super::{
+    Controller as _, INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET,
+};
 use crate::predictor::data::{Data, Entry};
-use itertools::Itertools;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
-
-const INITIAL_TIMEOUT_SECS: u64 = 5;
-const PENDING_COOLDOWN_RESET: u8 = 15;
-const NEXT_ALS_COOLDOWN_RESET: u8 = 15;
 
 pub struct Controller {
     prediction_tx: Sender<u64>,
@@ -22,37 +20,8 @@ pub struct Controller {
     output_name: String,
 }
 
-impl Controller {
-    pub fn new(
-        prediction_tx: Sender<u64>,
-        user_rx: Receiver<u64>,
-        als_rx: Receiver<String>,
-        stateful: bool,
-        output_name: &str,
-    ) -> Self {
-        let data = if stateful {
-            Data::load(output_name)
-        } else {
-            Data::new(output_name)
-        };
-
-        Self {
-            prediction_tx,
-            user_rx,
-            als_rx,
-            pending_cooldown: 0,
-            pending: None,
-            data,
-            stateful,
-            initial_brightness: None,
-            last_als: None,
-            next_als: None,
-            next_als_cooldown: 0,
-            output_name: output_name.to_string(),
-        }
-    }
-
-    pub fn adjust(&mut self, luma: u8) {
+impl super::Controller for Controller {
+    fn adjust(&mut self, luma: u8) {
         if self.last_als.is_none() {
             // ALS controller is expected to send the initial value on this channel asap
             self.last_als = self
@@ -96,6 +65,37 @@ impl Controller {
 
         let lux = &self.last_als.clone().expect("ALS value must be known");
         self.process(lux, luma);
+    }
+}
+
+impl Controller {
+    pub fn new(
+        prediction_tx: Sender<u64>,
+        user_rx: Receiver<u64>,
+        als_rx: Receiver<String>,
+        stateful: bool,
+        output_name: &str,
+    ) -> Self {
+        let data = if stateful {
+            Data::load(output_name)
+        } else {
+            Data::new(output_name)
+        };
+
+        Self {
+            prediction_tx,
+            user_rx,
+            als_rx,
+            pending_cooldown: 0,
+            pending: None,
+            data,
+            stateful,
+            initial_brightness: None,
+            last_als: None,
+            next_als: None,
+            next_als_cooldown: 0,
+            output_name: output_name.to_string(),
+        }
     }
 
     fn process(&mut self, lux: &str, luma: u8) {
@@ -151,61 +151,19 @@ impl Controller {
     }
 
     fn predict(&mut self, lux: &str, luma: u8) {
-        let entries = self
-            .data
-            .entries
-            .iter()
-            .filter(|e| e.lux == lux)
-            .collect_vec();
-
-        if entries.is_empty() {
-            return;
+        if let Some(prediction) = self.interpolate(&self.data.entries, lux, luma) {
+            log::trace!("Prediction: {} (lux: {}, luma: {})", prediction, lux, luma);
+            self.prediction_tx
+                .send(prediction)
+                .expect("Unable to send predicted brightness value, channel is dead");
         }
-
-        let points = entries
-            .iter()
-            .map(|entry| {
-                let distance = (luma as f64 - entry.luma as f64).abs();
-                (entry.brightness as f64, distance)
-            })
-            .collect_vec();
-
-        let points = points
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let other_distances: f64 = points[0..i]
-                    .iter()
-                    .chain(&points[i + 1..])
-                    .map(|p| p.1)
-                    .product();
-                (p.0, p.1, other_distances)
-            })
-            .collect_vec();
-
-        let distance_denominator: f64 = points
-            .iter()
-            .map(|p| p.1)
-            .combinations(points.len() - 1)
-            .map(|c| c.iter().product::<f64>())
-            .sum();
-
-        let prediction = points
-            .iter()
-            .map(|p| p.0 * p.2 / distance_denominator)
-            .sum::<f64>() as u64;
-
-        log::trace!("Prediction: {} (lux: {}, luma: {})", prediction, lux, luma);
-        self.prediction_tx
-            .send(prediction)
-            .expect("Unable to send predicted brightness value, channel is dead");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use itertools::iproduct;
+    use itertools::{iproduct, Itertools};
     use std::collections::HashSet;
     use std::error::Error;
     use std::sync::mpsc;

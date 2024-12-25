@@ -31,13 +31,13 @@ fn main() {
         .output
         .iter()
         .filter_map(|output| {
-            let output = output.clone();
+            let output_clone = output.clone();
 
             let (als_tx, als_rx) = mpsc::channel();
             let (user_tx, user_rx) = mpsc::channel();
             let (prediction_tx, prediction_rx) = mpsc::channel();
 
-            let (output_name, output_capturer) = match output.clone() {
+            let (output_name, output_capturer) = match output_clone.clone() {
                 config::Output::Backlight(cfg) => (cfg.name, cfg.capturer),
                 config::Output::DdcUtil(cfg) => (cfg.name, cfg.capturer),
             };
@@ -63,6 +63,10 @@ fn main() {
                         })
                         .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
 
+                    let predictor = match output_clone.clone() {
+                        config::Output::Backlight(backlight_output) => backlight_output.predictor,
+                        config::Output::DdcUtil(ddcutil_output) => ddcutil_output.predictor,
+                    };
                     let thread_name = format!("predictor-{}", output_name);
                     std::thread::Builder::new()
                         .name(thread_name.clone())
@@ -77,13 +81,28 @@ fn main() {
                                     }
                                 };
 
-                            let controller = predictor::Controller::new(
-                                prediction_tx,
-                                user_rx,
-                                als_rx,
-                                true,
-                                &output_name,
-                            );
+                            let controller = match predictor {
+                                config::Predictor::Manual { thresholds } => {
+                                    Box::new(predictor::controller::manual::Controller::new(
+                                        prediction_tx,
+                                        user_rx,
+                                        als_rx,
+                                        thresholds,
+                                    ))
+                                        as Box<dyn predictor::Controller>
+                                }
+                                config::Predictor::Adaptive => {
+                                    Box::new(predictor::controller::adaptive::Controller::new(
+                                        prediction_tx,
+                                        user_rx,
+                                        als_rx,
+                                        true,
+                                        &output_name,
+                                    ))
+                                        as Box<dyn predictor::Controller>
+                                }
+                            };
+
                             frame_capturer.run(&output_name, controller)
                         })
                         .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
@@ -122,7 +141,7 @@ fn main() {
                         .expect("Unable to start thread: als-webcam");
                     als::webcam::Als::new(webcam_rx, thresholds)
                 }),
-                config::Als::None => Box::<als::none::Als>::default(),
+                config::Als::None { .. } => Box::<als::none::Als>::default(),
             };
 
             als::controller::Controller::new(als, als_txs).run();
