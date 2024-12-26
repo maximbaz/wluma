@@ -74,7 +74,7 @@ Each of them contains a `thresholds` field, which comes with good default values
 
 ### Displays
 
-Multiple outputs are supported, using `backlight` (common for internal laptop screens) and `ddcutil` (for external screens).
+Multiple outputs are supported, using `backlight` (common for internal laptop screens) and `ddcutil` (for external screens). DDC is known to often be problematic, always consider trying out [ddcci-driver-linux](https://gitlab.com/ddcci-driver-linux/ddcci-driver-linux) first if you can.
 
 Each output is identified by compositor using model, manufacturer and serial number (e.g.`eDP-1 'Sharp Corporation 0x14A8 0x00000000' (eDP-1)`.
 
