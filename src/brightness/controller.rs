@@ -51,13 +51,15 @@ impl Controller {
     fn step(&mut self) {
         match self.brightness.get() {
             Ok(new_brightness) => {
+                let predicted_value = self.prediction_rx.try_iter().last();
+
                 // 1. check if user wants to learn a new value - this overrides any ongoing activity
                 if Some(new_brightness) != self.current {
                     return self.update_current(new_brightness);
                 }
 
                 // 2. check if predictor wants to set a new value
-                if let Some(desired) = self.prediction_rx.try_iter().last() {
+                if let Some(desired) = predicted_value {
                     self.update_target(desired);
                 }
 
