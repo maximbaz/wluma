@@ -8,6 +8,9 @@ mod device_file;
 mod frame;
 mod predictor;
 
+/// Current app version (determined at compile-time).
+pub const VERSION: &str = env!("WLUMA_VERSION");
+
 fn main() {
     let panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
@@ -19,6 +22,8 @@ fn main() {
         .filter_level(log::LevelFilter::Info)
         .parse_default_env()
         .init();
+
+    log::debug!("== wluma v{} ==", VERSION);
 
     let config = match config::load() {
         Ok(config) => config,

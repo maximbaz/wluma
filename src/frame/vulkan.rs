@@ -8,7 +8,6 @@ use std::ffi::CString;
 use std::ops::Drop;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
-const WLUMA_VERSION: u32 = vk::make_api_version(0, 4, 6, 1);
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
 
 const FINAL_MIP_LEVEL: u32 = 4; // Don't generate mipmaps beyond this level - GPU is doing too poor of a job averaging the colors
@@ -37,11 +36,18 @@ pub struct Vulkan {
 impl Vulkan {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let app_name = CString::new("wluma")?;
+        let app_version: u32 = vk::make_api_version(
+            0,
+            env!("WLUMA_VERSION_MAJOR").parse()?,
+            env!("WLUMA_VERSION_MINOR").parse()?,
+            env!("WLUMA_VERSION_PATCH").parse()?,
+        );
+
         let app_info = vk::ApplicationInfo::default()
             .application_name(&app_name)
-            .application_version(WLUMA_VERSION)
+            .application_version(app_version)
             .engine_name(&app_name)
-            .engine_version(WLUMA_VERSION)
+            .engine_version(app_version)
             .api_version(VULKAN_VERSION);
 
         let instance_extensions = &[
