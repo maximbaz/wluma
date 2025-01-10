@@ -30,7 +30,7 @@ impl super::Controller for Controller {
                 .als_rx
                 .recv_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
                 .map_or_else(
-                    |_| panic!("Did not receive initial ALS value in time"),
+                    |e| panic!("Did not receive initial ALS value in time: {e:?}"),
                     Some,
                 );
         }
