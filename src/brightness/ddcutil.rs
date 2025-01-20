@@ -77,19 +77,10 @@ fn find_display_by_name(name: &str, check_caps: bool) -> Option<Display> {
             caps.ok().map(|_| {
                 let empty = "".to_string();
                 let merged = format!(
-                    "{} {}",
-                    display
-                        .info
-                        .model_name
-                        .as_ref()
-                        .map_or(&empty, |model_name| {
-                            if model_name.starts_with(char::from(0)) {
-                                display.info.manufacturer_id.as_ref().unwrap_or(&empty)
-                            } else {
-                                model_name
-                            }
-                        }),
-                    display.info.serial_number.as_ref().unwrap_or(&empty)
+                    "{} {} {}",
+                    display.info.model_name.as_ref().unwrap_or(&empty),
+                    display.info.serial_number.as_ref().unwrap_or(&empty),
+                    display.info.manufacturer_id.as_ref().unwrap_or(&empty)
                 );
                 (merged, display)
             })
