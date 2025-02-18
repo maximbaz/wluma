@@ -123,7 +123,7 @@ impl Controller {
 
     fn learn(&mut self) {
         let pending = self.pending.take().expect("No pending entry to learn");
-        log::debug!("[{}] Learning {:?}", self.output_name, pending);
+        log::debug!("[{}] Learning {pending:?}", self.output_name);
 
         self.data.entries.retain(|entry| {
             let different_env = entry.lux != pending.lux;
@@ -152,7 +152,10 @@ impl Controller {
 
     fn predict(&mut self, lux: &str, luma: u8) {
         if let Some(prediction) = self.interpolate(&self.data.entries, lux, luma) {
-            log::trace!("Prediction: {} (lux: {}, luma: {})", prediction, lux, luma);
+            log::trace!(
+                "[{}] Prediction: {prediction} (lux: {lux}, luma: {luma})",
+                self.output_name
+            );
             self.prediction_tx
                 .send(prediction)
                 .expect("Unable to send predicted brightness value, channel is dead");
