@@ -48,6 +48,13 @@ impl Backlight {
                 .and_then(|x| x.to_str())
                 .ok_or("Unable to identify backlight ID")?;
 
+            let subsystem = Path::new(path)
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|x| x.to_str())
+                .and_then(|x| match x { "backlight" | "leds" => Some(x), _ => None })
+                .ok_or("Unable to identify backlight subsystem")?;
+
             let message = Message::new_method_call(
                 "org.freedesktop.login1",
                 "/org/freedesktop/login1/session/auto",
@@ -55,7 +62,7 @@ impl Backlight {
                 "SetBrightness",
             )
             .ok()
-            .map(|m| m.append2("backlight", id));
+            .map(|m| m.append2(subsystem, id));
 
             let connection = Connection::new_system().ok().and_then(|connection| {
                 message.map(|message| Dbus {
