@@ -14,7 +14,7 @@ serde = { version = "~1.0", features = ["derive"] }
 serde_yaml = "~0.9"
 toml = "~0.8"
 chrono = "~0.4"
-itertools = "~0.13"
+itertools = "~0.14"
 v4l = { version = "~0.14", features = ["libv4l"], default-features = false }
 ddc-hi = "~0.4"
 log = "~0.4"
