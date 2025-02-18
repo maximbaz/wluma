@@ -93,6 +93,7 @@ fn main() {
                                         user_rx,
                                         als_rx,
                                         thresholds,
+                                        &output_name,
                                     ))
                                         as Box<dyn predictor::Controller>
                                 }

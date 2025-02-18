@@ -20,6 +20,7 @@ pub struct Controller {
     last_als: Option<String>,
     next_als: Option<String>,
     next_als_cooldown: u8,
+    output_name: String,
 }
 
 impl super::Controller for Controller {
@@ -62,6 +63,7 @@ impl Controller {
         user_rx: Receiver<u64>,
         als_rx: Receiver<String>,
         thresholds: HashMap<String, HashMap<u8, u64>>,
+        output_name: &str,
     ) -> Self {
         Self {
             prediction_tx,
@@ -74,6 +76,7 @@ impl Controller {
             last_als: None,
             next_als: None,
             next_als_cooldown: 0,
+            output_name: output_name.to_string(),
         }
     }
 
@@ -114,7 +117,10 @@ impl Controller {
             .expect("Pre-reduction brightness value must be known by now")
             .saturating_sub(brightness_reduction);
 
-        log::trace!("Prediction: {} (lux: {}, luma: {})", prediction, lux, luma);
+        log::trace!(
+            "[{}] Prediction: {prediction} (lux: {lux}, luma: {luma})",
+            self.output_name
+        );
         self.prediction_tx
             .send(prediction)
             .expect("Unable to send predicted brightness value, channel is dead");
@@ -169,7 +175,7 @@ mod tests {
         .into_iter()
         .collect();
 
-        let controller = Controller::new(prediction_tx, user_rx, als_rx, thresholds);
+        let controller = Controller::new(prediction_tx, user_rx, als_rx, thresholds, "eDP-1");
         Ok((controller, user_tx, prediction_rx))
     }
 
