@@ -52,8 +52,13 @@ impl Backlight {
                 .parent()
                 .and_then(|p| p.file_name())
                 .and_then(|x| x.to_str())
-                .and_then(|x| match x { "backlight" | "leds" => Some(x), _ => None })
-                .ok_or("Unable to identify backlight subsystem")?;
+                .and_then(|x| match x {
+                    "backlight" | "leds" => Some(x),
+                    _ => None,
+                })
+                .ok_or(format!(
+                    "Unable to identify backlight subsystem out of {path}, please open an issue on GitHub"
+                ))?;
 
             let message = Message::new_method_call(
                 "org.freedesktop.login1",
