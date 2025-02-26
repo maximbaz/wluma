@@ -352,10 +352,6 @@ impl Vulkan {
             1, frame.num_objects,
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
         );
-        assert_eq!(
-            875713112, frame.format,
-            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
-        );
 
         // External memory info
         let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::default()
@@ -365,7 +361,7 @@ impl Vulkan {
         let frame_image_create_info = vk::ImageCreateInfo::default()
             .push_next(&mut frame_image_memory_info)
             .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::B8G8R8A8_UNORM)
+            .format(map_drm_format(frame.format)?)
             .extent(vk::Extent3D {
                 width: frame.width,
                 height: frame.height,
@@ -462,18 +458,13 @@ impl Vulkan {
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
         );
 
-        assert_eq!(
-            875713112, frame.format,
-            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
-        );
-
         let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
 
         let frame_image_create_info = vk::ImageCreateInfo::default()
             .push_next(&mut frame_image_memory_info)
             .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::B8G8R8A8_UNORM)
+            .format(map_drm_format(frame.format)?)
             .extent(vk::Extent3D {
                 width: frame.width,
                 height: frame.height,
@@ -892,4 +883,12 @@ fn find_memory_type_index(
                 && memory_type.property_flags & flags == flags
         })
         .map(|(index, _)| index as _)
+}
+
+fn map_drm_format(format: u32) -> Result<vk::Format, Box<dyn Error>> {
+    match format {
+        875713112 => Ok(vk::Format::B8G8R8A8_UNORM),
+        808669784 => Ok(vk::Format::A2R10G10B10_UNORM_PACK32),
+        _ => Err(format!("Frame with formats other than DRM_FORMAT_XRGB8888 or DRM_FORMAT_XRGB2101010 are not supported yet (yours is {format}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value").into()),
+    }
 }
