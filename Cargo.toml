@@ -24,6 +24,7 @@ lazy_static = "~1.5"
 xdg = "~2.5"
 dbus = "~0.9"
 anyhow = "~1.0"
+drm-fourcc = "~2.2"
 
 [dev-dependencies]
 mockall = "0.13"

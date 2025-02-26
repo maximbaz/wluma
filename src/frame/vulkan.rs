@@ -2,6 +2,7 @@ use crate::frame::compute_perceived_lightness_percent;
 use crate::frame::object::Object;
 use ash::khr::external_memory_fd::Device as KHRDevice;
 use ash::{vk, Device, Entry, Instance};
+use drm_fourcc::DrmFourcc;
 use std::default::Default;
 use std::error::Error;
 use std::ffi::CString;
@@ -886,9 +887,23 @@ fn find_memory_type_index(
 }
 
 fn map_drm_format(format: u32) -> Result<vk::Format, Box<dyn Error>> {
-    match format {
-        875713112 => Ok(vk::Format::B8G8R8A8_UNORM),
-        808669784 => Ok(vk::Format::A2R10G10B10_UNORM_PACK32),
-        _ => Err(format!("Frame with formats other than DRM_FORMAT_XRGB8888 or DRM_FORMAT_XRGB2101010 are not supported yet (yours is {format}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value").into()),
+    let drm = DrmFourcc::try_from(format)?;
+    log::debug!("Processing frame in DRM format {drm}");
+
+    match drm {
+        DrmFourcc::Rgbx4444 => Ok(vk::Format::R4G4B4A4_UNORM_PACK16),
+        DrmFourcc::Bgrx4444 => Ok(vk::Format::B4G4R4A4_UNORM_PACK16),
+        DrmFourcc::Rgb565 => Ok(vk::Format::R5G6B5_UNORM_PACK16),
+        DrmFourcc::Bgr565 => Ok(vk::Format::B5G6R5_UNORM_PACK16),
+        DrmFourcc::Xrgb1555 => Ok(vk::Format::A1R5G5B5_UNORM_PACK16),
+        DrmFourcc::Rgbx5551 => Ok(vk::Format::R5G5B5A1_UNORM_PACK16),
+        DrmFourcc::Bgrx5551 => Ok(vk::Format::B5G5R5A1_UNORM_PACK16),
+        DrmFourcc::Xrgb2101010 => Ok(vk::Format::A2R10G10B10_UNORM_PACK32),
+        DrmFourcc::Xbgr2101010 => Ok(vk::Format::A2B10G10R10_UNORM_PACK32),
+        DrmFourcc::Xbgr16161616f => Ok(vk::Format::R16G16B16A16_SFLOAT),
+        DrmFourcc::Xbgr8888 => Ok(vk::Format::R8G8B8A8_UNORM),
+        DrmFourcc::Bgrx8888 => Ok(vk::Format::B8G8R8_UNORM),
+        DrmFourcc::Xrgb8888 => Ok(vk::Format::B8G8R8A8_UNORM),
+        _ => Err(format!("Unsupported DRM format: {format}. Please report on GitHub.").into()),
     }
 }
