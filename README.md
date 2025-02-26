@@ -135,6 +135,28 @@ To enable logging, set environment variable `RUST_LOG` to one of these values: `
 
 For more complex selectors, see [env_logger's documentation](https://docs.rs/env_logger/latest/env_logger/#enabling-logging).
 
+## Validating that wluma is able to see screen contents correctly
+
+This is a useful test to validate that wluma does indeed see the screen contents correctly. This is obviously only applicable if you didn't disable `capturer` in your config.
+
+1. Stop any running `wluma` instances
+1. Run the latest code from `main` branch (unless another branch was given to you by the maintainers): `RUST_LOG=trace cargo run`
+1. Open https://deadpixel.org and start the test.
+1. Make sure that **the entire screen** is covered with a single solid color, nothing else should be visible - not a status bar nor a notification, nothing else.
+1. Repeat for each of these colors: `black`, `white`, `red`, `green`, `blue`:
+   1. Let the color be visible for a few seconds.
+   1. Quickly go back to the running `wluma` and check the `luma` value reported for that color: `Prediction: 252 (lux: none, luma: ---> 14 <---)`
+1. Compare your values with the following expected results:
+   ```
+   black: 0
+   white: 100
+   red: 49
+   green: 83
+   blue: 26
+   ```
+
+If your results do not match, please open an issue and let's investigate!
+
 ## Known issues (help wanted!)
 
 Help is wanted and much appreciated! If you want to implement some of these, feel free to open an issue and I'll provide more details and try to help you along the way.
