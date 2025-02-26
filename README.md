@@ -41,7 +41,7 @@ The app has minimal impact on system resources and battery life even though it i
 
 Use one of the available packages and methods below:
 
-- Alpine Linux: [wluma](https://pkgs.alpinelinux.org/packages?name=wluma) (from Alpine Edge; it will be available in stable branches since Alpine v3.16)
+- Alpine Linux: [wluma](https://pkgs.alpinelinux.org/packages?name=wluma)
 - Arch Linux: [wluma](https://aur.archlinux.org/packages/wluma/) or [wluma-git](https://aur.archlinux.org/packages/wluma-git/)
 - NixOS: [wluma](https://search.nixos.org/packages?channel=unstable&show=wluma&from=0&size=50&sort=relevance&type=packages&query=wluma)
 - Build the app yourself using the instructions below and copy the resulting binary somewhere in your `$PATH`.
