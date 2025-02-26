@@ -7,6 +7,7 @@ use std::error::Error;
 use std::ffi::CString;
 use std::ops::Drop;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::thread;
 
 const VULKAN_VERSION: u32 = vk::make_api_version(0, 1, 2, 0);
 
@@ -190,6 +191,7 @@ impl Vulkan {
         );
 
         let (target_mip_level, mip_width, mip_height) = self.generate_mipmaps(frame_image, &image);
+        println!("{:?} {:?} {:?}", target_mip_level, mip_width, mip_height);
 
         self.copy_mipmap(&image, target_mip_level, mip_width, mip_height)?;
 
@@ -208,8 +210,13 @@ impl Vulkan {
                 .map_err(anyhow::Error::msg)?;
             std::slice::from_raw_parts(buffer_pointer as *mut u8, pixels * 4)
         };
+        println!(
+            "------------------>\n\n{:?}<======================\n\n",
+            rgbas
+        );
+        thread::sleep(std::time::Duration::from_secs(1));
 
-        let result = compute_perceived_lightness_percent(rgbas, true, pixels);
+        let result = 0; //compute_perceived_lightness_percent(rgbas, true, pixels);
 
         unsafe {
             self.device.unmap_memory(buffer_memory);
@@ -280,9 +287,9 @@ impl Vulkan {
             }
         }
 
-        let buffer_size = 4
-            * (frame.width >> (mip_levels - FINAL_MIP_LEVEL))
-            * (frame.height >> (mip_levels - FINAL_MIP_LEVEL));
+        let buffer_size = 4 * frame.width * frame.height;
+        // * (frame.width >> (mip_levels - FINAL_MIP_LEVEL))
+        // * (frame.height >> (mip_levels - FINAL_MIP_LEVEL));
 
         let buffer_info = vk::BufferCreateInfo::default()
             .size(buffer_size as u64)
@@ -352,9 +359,12 @@ impl Vulkan {
             1, frame.num_objects,
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
         );
-        assert_eq!(
-            875713112, frame.format,
-            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
+
+        let vk_format = map_drm_format(frame.format);
+
+        assert!(
+            vk_format.is_some(),
+            "Frame with formats other than DRM_FORMAT_XRGB8888 or DRM_FORMAT_XRGB2101010 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
         );
 
         // External memory info
@@ -462,18 +472,21 @@ impl Vulkan {
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
         );
 
-        assert_eq!(
-            875713112, frame.format,
-            "Frame with formats other than DRM_FORMAT_XRGB8888 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
+        let vk_format = map_drm_format(frame.format);
+
+        assert!(
+            vk_format.is_some(),
+            "Frame with formats other than DRM_FORMAT_XRGB8888 or DRM_FORMAT_XRGB2101010 are not supported yet (yours is {}). If you see this issue, please open a GitHub issue (unless there's one already open) and share your format value", frame.format
         );
 
+        // Use vk::Format::A2R10G10B10_UNORM_PACK32. Each pixel is a 32‐bit word; you reinterpret it as u32, then extract red = (pixel >> 20) & 0x3FF, green = (pixel >> 10) & 0x3FF, blue = pixel & 0x3FF, normalizing each by 1023. Would you like example code?
         let mut frame_image_memory_info = vk::ExternalMemoryImageCreateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
 
         let frame_image_create_info = vk::ImageCreateInfo::default()
             .push_next(&mut frame_image_memory_info)
             .image_type(vk::ImageType::TYPE_2D)
-            .format(vk::Format::B8G8R8A8_UNORM)
+            .format(vk_format.unwrap())
             .extent(vk::Extent3D {
                 width: frame.width,
                 height: frame.height,
@@ -724,7 +737,7 @@ impl Vulkan {
             0,
         );
 
-        let target_mip_level = mip_levels - FINAL_MIP_LEVEL;
+        let target_mip_level = 0; // mip_levels - FINAL_MIP_LEVEL;
         for i in 1..=target_mip_level {
             self.add_barrier(
                 image,
@@ -892,4 +905,12 @@ fn find_memory_type_index(
                 && memory_type.property_flags & flags == flags
         })
         .map(|(index, _)| index as _)
+}
+
+fn map_drm_format(format: u32) -> Option<vk::Format> {
+    match format {
+        875713112 => Some(vk::Format::B8G8R8A8_UNORM),
+        808669784 => Some(vk::Format::A2R10G10B10_UNORM_PACK32),
+        _ => None,
+    }
 }
