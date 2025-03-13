@@ -33,7 +33,7 @@ impl Als {
             .and_then(|dir| {
                 dir.filter_map(|e| e.ok())
                     .find(|e| {
-                        ["als", "acpi-als"].contains(
+                        ["als", "acpi-als", "apds9960"].contains(
                             &fs::read_to_string(e.path().join("name"))
                                 .unwrap_or_default()
                                 .trim(),
