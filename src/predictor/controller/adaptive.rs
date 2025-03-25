@@ -24,13 +24,20 @@ impl super::Controller for Controller {
     fn adjust(&mut self, luma: u8) {
         if self.last_als.is_none() {
             // ALS controller is expected to send the initial value on this channel asap
+            log::debug!("Inside adaptive controller, waiting for initial ALS value");
             self.last_als = self
                 .als_rx
                 .recv_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
                 .map_or_else(
-                    |e| panic!("Did not receive initial ALS value in time: {e:?}"),
+                    |e| {
+                        log::debug!(
+                            "Inside adaptive controller, timeout waiting for initial ALS value"
+                        );
+                        panic!("Did not receive initial ALS value in time: {e:?}")
+                    },
                     Some,
                 );
+            log::debug!("Inside adaptive controller, initial ALS value has been received");
 
             // Brightness controller is expected to send the initial value on this channel asap
             let initial_brightness = self

@@ -22,12 +22,18 @@ impl Controller {
     }
 
     fn step(&mut self) {
+        log::debug!("Inside ALS controller step()");
         match self.als.get() {
             Ok(value) => {
+                log::debug!(
+                    "Sending ALS value '{value}' to {} receivers",
+                    self.value_txs.len(),
+                );
                 self.value_txs.iter().for_each(|chan| {
                     chan.send(value.clone())
                         .expect("Unable to send new ALS value, channel is dead")
                 });
+                log::debug!("ALS value has been sent");
             }
             Err(err) => log::error!("Unable to get ALS value: {:?}", err),
         };

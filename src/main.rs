@@ -150,6 +150,7 @@ fn main() {
                 config::Als::None { .. } => Box::<als::none::Als>::default(),
             };
 
+            log::debug!("Reached init of ALS controller");
             als::controller::Controller::new(als, als_txs).run();
         })
         .expect("Unable to start thread: als");
