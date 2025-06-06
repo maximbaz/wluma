@@ -1,10 +1,10 @@
 use crate::frame::compute_perceived_lightness_percent;
 use crate::frame::object::Object;
+use crate::ErrorBox;
 use ash::khr::external_memory_fd::Device as KHRDevice;
 use ash::{vk, Device, Entry, Instance};
 use drm_fourcc::DrmFourcc;
 use std::default::Default;
-use std::error::Error;
 use std::ffi::CString;
 use std::ops::Drop;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -35,7 +35,7 @@ pub struct Vulkan {
 }
 
 impl Vulkan {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub fn new() -> Result<Self, ErrorBox> {
         let app_name = CString::new("wluma")?;
         let app_version: u32 = vk::make_api_version(
             0,
@@ -152,7 +152,7 @@ impl Vulkan {
         })
     }
 
-    pub fn luma_percent_from_external_fd(&mut self, frame: &Object) -> Result<u8, Box<dyn Error>> {
+    pub fn luma_percent_from_external_fd(&mut self, frame: &Object) -> Result<u8, ErrorBox> {
         let (frame_image, frame_image_memory) = self.init_frame_image(frame)?;
 
         let result = self.luma_percent(&frame_image)?;
@@ -165,7 +165,7 @@ impl Vulkan {
         Ok(result)
     }
 
-    pub fn luma_percent_from_internal_fd(&mut self) -> Result<u8, Box<dyn Error>> {
+    pub fn luma_percent_from_internal_fd(&mut self) -> Result<u8, ErrorBox> {
         let frame_image = self.exportable_frame_image.unwrap();
 
         let result = self.luma_percent(&frame_image)?;
@@ -173,7 +173,7 @@ impl Vulkan {
         Ok(result)
     }
 
-    fn luma_percent(&self, frame_image: &vk::Image) -> Result<u8, Box<dyn Error>> {
+    fn luma_percent(&self, frame_image: &vk::Image) -> Result<u8, ErrorBox> {
         let image = self.image.ok_or("Unable to borrow the Vulkan image")?;
         let buffer_memory = self.buffer_memory.ok_or("Unable to borrow buffer memory")?;
 
@@ -219,7 +219,7 @@ impl Vulkan {
         Ok(result)
     }
 
-    fn init_image(&mut self, frame: &Object) -> Result<(), Box<dyn Error>> {
+    fn init_image(&mut self, frame: &Object) -> Result<(), ErrorBox> {
         let mip_levels = f64::max(frame.width.into(), frame.height.into())
             .log2()
             .floor() as u32;
@@ -348,7 +348,7 @@ impl Vulkan {
     fn init_frame_image(
         &mut self,
         frame: &Object,
-    ) -> Result<(vk::Image, vk::DeviceMemory), Box<dyn Error>> {
+    ) -> Result<(vk::Image, vk::DeviceMemory), ErrorBox> {
         assert_eq!(
             1, frame.num_objects,
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
@@ -453,7 +453,7 @@ impl Vulkan {
     pub fn init_exportable_frame_image(
         &mut self,
         frame: &Object,
-    ) -> Result<(i32, u64, u64, u64), Box<dyn Error>> {
+    ) -> Result<(i32, u64, u64, u64), ErrorBox> {
         assert_eq!(
             1, frame.num_objects,
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
@@ -756,7 +756,7 @@ impl Vulkan {
         mip_level: u32,
         width: u32,
         height: u32,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), ErrorBox> {
         self.add_barrier(
             image,
             mip_level,
@@ -797,7 +797,7 @@ impl Vulkan {
         Ok(())
     }
 
-    fn begin_commands(&self) -> Result<(), Box<dyn Error>> {
+    fn begin_commands(&self) -> Result<(), ErrorBox> {
         let command_buffer_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
@@ -810,7 +810,7 @@ impl Vulkan {
         Ok(())
     }
 
-    fn submit_commands(&self) -> Result<(), Box<dyn Error>> {
+    fn submit_commands(&self) -> Result<(), ErrorBox> {
         unsafe {
             // End the command buffer
             self.device
@@ -886,7 +886,7 @@ fn find_memory_type_index(
         .map(|(index, _)| index as _)
 }
 
-fn map_drm_format(format: u32) -> Result<vk::Format, Box<dyn Error>> {
+fn map_drm_format(format: u32) -> Result<vk::Format, ErrorBox> {
     let drm = DrmFourcc::try_from(format)?;
     log::debug!("Processing frame in DRM format {drm}");
 

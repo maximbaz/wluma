@@ -1,9 +1,9 @@
 use ddc_hi::{Ddc, Display, FeatureCode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use std::cell::RefCell;
-use std::error::Error;
-use std::sync::Mutex;
+use smol::lock::Mutex;
+
+use crate::ErrorBox;
 
 lazy_static! {
     static ref DDC_MUTEX: Mutex<()> = Mutex::new(());
@@ -12,53 +12,47 @@ lazy_static! {
 const DDC_BRIGHTNESS_FEATURE: FeatureCode = 0x10;
 
 pub struct DdcUtil {
-    display: RefCell<Display>,
+    display: Mutex<Display>,
     min_brightness: u64,
     max_brightness: u64,
 }
 
 impl DdcUtil {
-    pub fn new(name: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
+    pub fn new(name: &str, min_brightness: u64) -> Result<Self, ErrorBox> {
         let mut display = find_display_by_name(name, true)
             .or_else(|| find_display_by_name(name, false))
             .ok_or("Unable to find display")?;
         let max_brightness = get_max_brightness(&mut display)?;
 
         Ok(Self {
-            display: RefCell::new(display),
+            display: Mutex::new(display),
             min_brightness,
             max_brightness,
         })
     }
-}
 
-impl super::Brightness for DdcUtil {
-    fn get(&mut self) -> Result<u64, Box<dyn Error>> {
-        let _lock = DDC_MUTEX
-            .lock()
-            .expect("Unable to acquire exclusive access to DDC API");
+    pub async fn get(&mut self) -> Result<u64, ErrorBox> {
+        let _lock = DDC_MUTEX.lock().await;
         Ok(self
             .display
-            .borrow_mut()
+            .get_mut()
             .handle
             .get_vcp_feature(DDC_BRIGHTNESS_FEATURE)?
             .value() as u64)
     }
 
-    fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
-        let _lock = DDC_MUTEX
-            .lock()
-            .expect("Unable to acquire exclusive access to DDC API");
+    pub async fn set(&mut self, value: u64) -> Result<u64, ErrorBox> {
+        let _lock = DDC_MUTEX.lock().await;
         let value = value.clamp(self.min_brightness, self.max_brightness);
         self.display
-            .borrow_mut()
+            .get_mut()
             .handle
             .set_vcp_feature(DDC_BRIGHTNESS_FEATURE, value as u16)?;
         Ok(value)
     }
 }
 
-fn get_max_brightness(display: &mut Display) -> Result<u64, Box<dyn Error>> {
+fn get_max_brightness(display: &mut Display) -> Result<u64, ErrorBox> {
     Ok(display
         .handle
         .get_vcp_feature(DDC_BRIGHTNESS_FEATURE)?

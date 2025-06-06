@@ -1,8 +1,11 @@
-use itertools::Itertools;
-use std::sync::mpsc;
+use std::error::Error;
+
+use macro_rules_attribute::apply;
+use smol::channel;
 
 mod als;
 mod brightness;
+mod channel_ext;
 mod config;
 mod device_file;
 mod frame;
@@ -11,7 +14,10 @@ mod predictor;
 /// Current app version (determined at compile-time).
 pub const VERSION: &str = env!("WLUMA_VERSION");
 
-fn main() {
+pub type ErrorBox = Box<dyn Error + Send + Sync>;
+
+#[apply(smol_macros::main!)]
+async fn main() {
     let panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         panic_hook(panic_info);
@@ -32,128 +38,123 @@ fn main() {
 
     log::debug!("Using {:#?}", config);
 
-    let als_txs = config
-        .output
-        .iter()
-        .filter_map(|output| {
-            let output_clone = output.clone();
+    let mut tasks = vec![];
 
-            let (als_tx, als_rx) = mpsc::channel();
-            let (user_tx, user_rx) = mpsc::channel();
-            let (prediction_tx, prediction_rx) = mpsc::channel();
+    let mut als_txs = vec![];
+    for output in &config.output {
+        let output_clone = output.clone();
 
-            let (output_name, output_capturer) = match output_clone.clone() {
-                config::Output::Backlight(cfg) => (cfg.name, cfg.capturer),
-                config::Output::DdcUtil(cfg) => (cfg.name, cfg.capturer),
-            };
+        let (als_tx, als_rx) = channel::bounded(128);
+        let (user_tx, user_rx) = channel::bounded(128);
+        let (prediction_tx, prediction_rx) = channel::bounded(128);
 
-            let brightness = match output {
-                config::Output::Backlight(cfg) => {
-                    brightness::Backlight::new(&cfg.path, cfg.min_brightness)
-                        .map(|b| Box::new(b) as Box<dyn brightness::Brightness + Send>)
-                }
-                config::Output::DdcUtil(cfg) => {
-                    brightness::DdcUtil::new(&cfg.name, cfg.min_brightness)
-                        .map(|b| Box::new(b) as Box<dyn brightness::Brightness + Send>)
-                }
-            };
+        let (output_name, output_capturer) = match output_clone.clone() {
+            config::Output::Backlight(cfg) => (cfg.name, cfg.capturer),
+            config::Output::DdcUtil(cfg) => (cfg.name, cfg.capturer),
+        };
 
-            match brightness {
-                Ok(b) => {
-                    let thread_name = format!("backlight-{}", output_name);
-                    std::thread::Builder::new()
-                        .name(thread_name.clone())
-                        .spawn(move || {
-                            brightness::Controller::new(b, user_tx, prediction_rx).run();
-                        })
-                        .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
-
-                    let predictor = match output_clone.clone() {
-                        config::Output::Backlight(backlight_output) => backlight_output.predictor,
-                        config::Output::DdcUtil(ddcutil_output) => ddcutil_output.predictor,
-                    };
-                    let thread_name = format!("predictor-{}", output_name);
-                    std::thread::Builder::new()
-                        .name(thread_name.clone())
-                        .spawn(move || {
-                            let mut frame_capturer: Box<dyn frame::capturer::Capturer> =
-                                match output_capturer {
-                                    config::Capturer::Wayland(protocol) => {
-                                        Box::new(frame::capturer::wayland::Capturer::new(protocol))
-                                    }
-                                    config::Capturer::None => {
-                                        Box::<frame::capturer::none::Capturer>::default()
-                                    }
-                                };
-
-                            let controller = match predictor {
-                                config::Predictor::Manual { thresholds } => {
-                                    Box::new(predictor::controller::manual::Controller::new(
-                                        prediction_tx,
-                                        user_rx,
-                                        als_rx,
-                                        thresholds,
-                                        &output_name,
-                                    ))
-                                        as Box<dyn predictor::Controller>
-                                }
-                                config::Predictor::Adaptive => {
-                                    Box::new(predictor::controller::adaptive::Controller::new(
-                                        prediction_tx,
-                                        user_rx,
-                                        als_rx,
-                                        true,
-                                        &output_name,
-                                    ))
-                                        as Box<dyn predictor::Controller>
-                                }
-                            };
-
-                            frame_capturer.run(&output_name, controller)
-                        })
-                        .unwrap_or_else(|_| panic!("Unable to start thread: {}", thread_name));
-
-                    Some(als_tx)
-                }
-                Err(err) => {
-                    log::warn!(
-                        "Skipping '{}' as it might be disconnected: {}",
-                        output_name,
-                        err
-                    );
-
-                    None
-                }
+        let brightness = match output {
+            config::Output::Backlight(cfg) => {
+                brightness::Backlight::new(&cfg.path, cfg.min_brightness)
+                    .await
+                    .map(brightness::Brightness::Backlight)
             }
-        })
-        .collect_vec();
+            config::Output::DdcUtil(cfg) => brightness::DdcUtil::new(&cfg.name, cfg.min_brightness)
+                .map(brightness::Brightness::DdcUtil),
+        };
 
-    std::thread::Builder::new()
-        .name("als".to_string())
-        .spawn(move || {
-            let als: Box<dyn als::Als> = match config.als {
-                config::Als::Iio { path, thresholds } => Box::new(
-                    als::iio::Als::new(&path, thresholds)
-                        .expect("Unable to initialize ALS IIO sensor"),
-                ),
-                config::Als::Time { thresholds } => Box::new(als::time::Als::new(thresholds)),
-                config::Als::Webcam { video, thresholds } => Box::new({
-                    let (webcam_tx, webcam_rx) = mpsc::channel();
-                    std::thread::Builder::new()
-                        .name("als-webcam".to_string())
-                        .spawn(move || {
-                            als::webcam::Webcam::new(webcam_tx, video).run();
-                        })
-                        .expect("Unable to start thread: als-webcam");
-                    als::webcam::Als::new(webcam_rx, thresholds)
-                }),
-                config::Als::None { .. } => Box::<als::none::Als>::default(),
-            };
+        match brightness {
+            Ok(b) => {
+                tasks.push(smol::spawn(async {
+                    brightness::Controller::new(b, user_tx, prediction_rx)
+                        .run()
+                        .await;
+                }));
 
-            als::controller::Controller::new(als, als_txs).run();
-        })
-        .expect("Unable to start thread: als");
+                let predictor = match output_clone.clone() {
+                    config::Output::Backlight(backlight_output) => backlight_output.predictor,
+                    config::Output::DdcUtil(ddcutil_output) => ddcutil_output.predictor,
+                };
+
+                tasks.push(smol::spawn(async move {
+                    let mut frame_capturer: frame::capturer::Capturer = match output_capturer {
+                        config::Capturer::Wayland(protocol) => frame::capturer::Capturer::Wayland(
+                            frame::capturer::wayland::Capturer::new(protocol),
+                        ),
+                        config::Capturer::None => {
+                            frame::capturer::Capturer::None(Default::default())
+                        }
+                    };
+
+                    let controller = match predictor {
+                        config::Predictor::Manual { thresholds } => predictor::Controller::Manual(
+                            predictor::controller::manual::Controller::new(
+                                prediction_tx,
+                                user_rx,
+                                als_rx,
+                                thresholds,
+                                &output_name,
+                            ),
+                        ),
+                        config::Predictor::Adaptive => predictor::Controller::Adaptive(
+                            predictor::controller::adaptive::Controller::new(
+                                prediction_tx,
+                                user_rx,
+                                als_rx,
+                                true,
+                                &output_name,
+                            ),
+                        ),
+                    };
+
+                    frame_capturer.run(&output_name, controller).await;
+                }));
+
+                als_txs.push(als_tx);
+            }
+            Err(err) => {
+                log::warn!(
+                    "Skipping '{}' as it might be disconnected: {}",
+                    output_name,
+                    err
+                );
+            }
+        }
+    }
+
+    tasks.push(smol::spawn(async {
+        let mut webcam_task = None;
+        let als: als::Als = match config.als {
+            config::Als::Iio { path, thresholds } => als::Als::Iio(
+                als::iio::Als::new(&path, thresholds)
+                    .await
+                    .expect("Unable to initialize ALS IIO sensor"),
+            ),
+            config::Als::Time { thresholds } => als::Als::Time(als::time::Als::new(thresholds)),
+            config::Als::Webcam { video, thresholds } => als::Als::Webcam({
+                let (webcam_tx, webcam_rx) = channel::bounded(128);
+
+                // TODO: make async
+                webcam_task = Some(smol::unblock(move || {
+                    als::webcam::Webcam::new(webcam_tx, video).run();
+                }));
+                als::webcam::Als::new(webcam_rx, thresholds)
+            }),
+            config::Als::None => als::Als::None(Default::default()),
+        };
+
+        let mut controller = als::controller::Controller::new(als, als_txs);
+
+        if let Some(webcam_task) = webcam_task {
+            smol::future::zip(controller.run(), webcam_task).await;
+        } else {
+            controller.run().await;
+        }
+    }));
 
     log::info!("Continue adjusting brightness and wluma will learn your preference over time.");
-    std::thread::park();
+
+    for task in tasks {
+        task.await;
+    }
 }

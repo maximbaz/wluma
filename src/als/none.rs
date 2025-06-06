@@ -1,10 +1,10 @@
-use std::error::Error;
+use crate::ErrorBox;
 
 #[derive(Default)]
 pub struct Als {}
 
-impl super::Als for Als {
-    fn get(&self) -> Result<String, Box<dyn Error>> {
+impl Als {
+    pub async fn get(&self) -> Result<String, ErrorBox> {
         Ok("none".to_string())
     }
 }
