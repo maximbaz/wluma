@@ -131,220 +131,207 @@ impl Controller {
     }
 }
 
-// TODO: All these tests require mocking right now, which regressed with the async port, as
-// `Brightness` is no longer a trait now. We should re-implement this, perhaps using a
-// conditionally compiled-in variant to the Brightness enum.
-//#[cfg(test)]
-//mod tests {
-//    use super::*;
-//    use crate::ErrorBox;
-//    use macro_rules_attribute::apply;
-//    use mockall::predicate;
-//    use smol::channel;
-//    use smol_macros::test;
-//
-//    // Intentionally not in main code to prevent confusing fields by accident
-//    fn target(desired: u64, step: i64) -> Target {
-//        Target { desired, step }
-//    }
-//
-//    fn setup(brightness_mock: MockBrightness) -> (Controller, Sender<u64>, Receiver<u64>) {
-//        let (user_tx, user_rx) = channel::bounded(128);
-//        let (prediction_tx, prediction_rx) = channel::bounded(128);
-//        let controller = Controller::new(Box::new(brightness_mock), user_tx, prediction_rx);
-//        (controller, prediction_tx, user_rx)
-//    }
-//
-//    #[apply(test!)]
-//    async fn test_step_first_run() -> Result<(), ErrorBox> {
-//        let mut brightness_mock = MockBrightness::new();
-//        brightness_mock.expect_get().return_once(|| Ok(42));
-//        let (mut controller, prediction_tx, user_rx) = setup(brightness_mock);
-//
-//        // even if predictor already wants a change...
-//        prediction_tx.send(37).await?;
-//
-//        // when we execute the first step...
-//        controller.step().await;
-//
-//        // a real current brightness level is respected and sent to predictor
-//        assert_eq!(Some(42), controller.current);
-//        assert_eq!(42, user_rx.try_recv()?);
-//        assert!(controller.target.is_none());
-//
-//        Ok(())
-//    }
-//
-//    #[apply(test!)]
-//    async fn test_step_first_run_brightness_zero() -> Result<(), ErrorBox> {
-//        let mut brightness_mock = MockBrightness::new();
-//
-//        // if the current brightness value is zero...
-//        brightness_mock.expect_get().return_once(|| Ok(0));
-//
-//        let (mut controller, prediction_tx, user_rx) = setup(brightness_mock);
-//
-//        // even if predictor already wants a change...
-//        prediction_tx.send(37).await?;
-//
-//        // when we execute the first step...
-//        controller.step().await;
-//
-//        // a brightness value of zero is being sent to predictor
-//        assert_eq!(Some(0), controller.current);
-//        assert_eq!(0, user_rx.try_recv()?);
-//        assert!(controller.target.is_none());
-//
-//        Ok(())
-//    }
-//
-//    #[apply(test!)]
-//    async fn test_step_user_changed_brightness() -> Result<(), ErrorBox> {
-//        let mut brightness_mock = MockBrightness::new();
-//        brightness_mock.expect_get().return_once(|| Ok(42));
-//        let (mut controller, prediction_tx, user_rx) = setup(brightness_mock);
-//
-//        // when last brightness differs from the current one
-//        controller.current = Some(66);
-//
-//        // even if predictor wants a change...
-//        prediction_tx.send(37).await?;
-//
-//        // ... or we were already in a transition
-//        controller.target = Some(target(77, 1));
-//
-//        // when we execute the next step...
-//        controller.step().await;
-//
-//        // we notice a change in brightness made by user and that takes priority
-//        assert_eq!(Some(42), controller.current);
-//        assert_eq!(42, user_rx.try_recv()?);
-//        assert!(controller.target.is_none());
-//
-//        Ok(())
-//    }
-//
-//    #[test]
-//    fn test_update_target_ignore_when_desired_didnt_change() {
-//        let old_target = Some(target(10, -20));
-//        let (mut controller, _, _) = setup(MockBrightness::new());
-//        controller.target = old_target;
-//        controller.current = Some(7);
-//
-//        controller.update_target(10);
-//
-//        assert_eq!(old_target, controller.target);
-//    }
-//
-//    #[test]
-//    fn test_update_target_ignore_when_desired_equals_current() {
-//        let old_target = Some(target(10, -20));
-//        let (mut controller, _, _) = setup(MockBrightness::new());
-//        controller.target = old_target;
-//        controller.current = Some(7);
-//
-//        controller.update_target(7);
-//
-//        assert_eq!(old_target, controller.target);
-//    }
-//
-//    #[test]
-//    fn test_update_target_finds_minimal_step_that_reaches_target_within_transition_duration() {
-//        let (mut controller, _, _) = setup(MockBrightness::new());
-//
-//        let test_cases = vec![
-//            (0, 1, 1),
-//            (10000, 10001, 1),
-//            (10000, 10013, 1),
-//            (10000, 10199, 1),
-//            (10000, 10200, 1),
-//            (10000, 10413, 3),
-//            (10000, 11732, 9),
-//            (10000, 9999, -1),
-//            (10000, 9983, -1),
-//            (10000, 9801, -1),
-//            (10000, 9800, -1),
-//            (10000, 9473, -3),
-//            (10000, 8433, -8),
-//        ];
-//
-//        for (current, desired, expected_step) in test_cases {
-//            controller.current = Some(current);
-//            controller.update_target(desired);
-//            assert_eq!(Some(target(desired, expected_step)), controller.target);
-//        }
-//    }
-//
-//    #[test]
-//    fn test_transition_reset_target_when_reached() {
-//        let (mut controller, _, _) = setup(MockBrightness::new());
-//        controller.current = Some(10);
-//        controller.target = Some(target(10, 20));
-//
-//        controller.transition();
-//
-//        assert_eq!(None, controller.target);
-//    }
-//
-//    #[test]
-//    fn test_transition_increases_brightness_with_next_step() {
-//        let mut brightness_mock = MockBrightness::new();
-//        brightness_mock
-//            .expect_set()
-//            .with(predicate::eq(12))
-//            .times(1)
-//            .returning(Ok);
-//        let (mut controller, _, _) = setup(brightness_mock);
-//        controller.current = Some(10);
-//        controller.target = Some(target(20, 2));
-//
-//        controller.transition();
-//
-//        assert_eq!(Some(12), controller.current);
-//    }
-//
-//    #[test]
-//    fn test_transition_decreases_brightness_with_next_step() {
-//        let mut brightness_mock = MockBrightness::new();
-//        brightness_mock
-//            .expect_set()
-//            .with(predicate::eq(9))
-//            .times(1)
-//            .returning(Ok);
-//        let (mut controller, _, _) = setup(brightness_mock);
-//        controller.current = Some(10);
-//        controller.target = Some(target(9, -1));
-//
-//        controller.transition();
-//
-//        assert_eq!(Some(9), controller.current);
-//    }
-//
-//    #[test]
-//    fn test_transition_doesnt_decrease_below_0() {
-//        let mut brightness_mock = MockBrightness::new();
-//        brightness_mock
-//            .expect_set()
-//            .with(predicate::eq(0))
-//            .times(1)
-//            .returning(Ok);
-//        let (mut controller, _, _) = setup(brightness_mock);
-//        controller.current = Some(1);
-//        controller.target = Some(target(0, -2)); // step of -2 should not overshoot
-//
-//        controller.transition();
-//
-//        assert_eq!(Some(0), controller.current);
-//    }
-//
-//    #[test]
-//    fn test_target_reached() {
-//        assert!(!target(10, 1).reached(9));
-//        assert!(target(10, 1).reached(10));
-//        assert!(target(10, 1).reached(11));
-//
-//        assert!(target(10, -1).reached(9));
-//        assert!(target(10, -1).reached(10));
-//        assert!(!target(10, -1).reached(11));
-//    }
-//}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ErrorBox;
+    use macro_rules_attribute::apply;
+    use smol::channel;
+    use smol_macros::test;
+
+    // Intentionally not in main code to prevent confusing fields by accident
+    fn target(desired: u64, step: i64) -> Target {
+        Target { desired, step }
+    }
+
+    fn brightness_mock(get: Vec<u64>, set: Vec<u64>) -> Brightness {
+        Brightness::Mock { get, set }
+    }
+
+    fn is_brightness_spent(mock: &Brightness) -> bool {
+        match mock {
+            Brightness::Mock { get, set } => get.is_empty() && set.is_empty(),
+            _ => unreachable!(),
+        }
+    }
+
+    fn setup(brightness_mock: Brightness) -> (Controller, Sender<u64>, Receiver<u64>) {
+        let (user_tx, user_rx) = channel::bounded(128);
+        let (prediction_tx, prediction_rx) = channel::bounded(128);
+        let controller = Controller::new(brightness_mock, user_tx, prediction_rx);
+        (controller, prediction_tx, user_rx)
+    }
+
+    #[apply(test!)]
+    async fn test_step_first_run() -> Result<(), ErrorBox> {
+        let (mut controller, prediction_tx, user_rx) = setup(brightness_mock(vec![42], vec![]));
+
+        // even if predictor already wants a change...
+        prediction_tx.send(37).await?;
+
+        // when we execute the first step...
+        controller.step().await;
+
+        // a real current brightness level is respected and sent to predictor
+        assert_eq!(Some(42), controller.current);
+        assert_eq!(42, user_rx.try_recv()?);
+        assert!(controller.target.is_none());
+        assert!(is_brightness_spent(&controller.brightness));
+
+        Ok(())
+    }
+
+    #[apply(test!)]
+    async fn test_step_first_run_brightness_zero() -> Result<(), ErrorBox> {
+        // if the current brightness value is zero...
+        let (mut controller, prediction_tx, user_rx) = setup(brightness_mock(vec![0], vec![]));
+
+        // even if predictor already wants a change...
+        prediction_tx.send(37).await?;
+
+        // when we execute the first step...
+        controller.step().await;
+
+        // a brightness value of zero is being sent to predictor
+        assert_eq!(Some(0), controller.current);
+        assert_eq!(0, user_rx.try_recv()?);
+        assert!(controller.target.is_none());
+        assert!(is_brightness_spent(&controller.brightness));
+
+        Ok(())
+    }
+
+    #[apply(test!)]
+    async fn test_step_user_changed_brightness() -> Result<(), ErrorBox> {
+        let (mut controller, prediction_tx, user_rx) = setup(brightness_mock(vec![42], vec![]));
+
+        // when last brightness differs from the current one
+        controller.current = Some(66);
+
+        // even if predictor wants a change...
+        prediction_tx.send(37).await?;
+
+        // ... or we were already in a transition
+        controller.target = Some(target(77, 1));
+
+        // when we execute the next step...
+        controller.step().await;
+
+        // we notice a change in brightness made by user and that takes priority
+        assert_eq!(Some(42), controller.current);
+        assert_eq!(42, user_rx.try_recv()?);
+        assert!(controller.target.is_none());
+        assert!(is_brightness_spent(&controller.brightness));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_update_target_ignore_when_desired_didnt_change() {
+        let old_target = Some(target(10, -20));
+        let (mut controller, _, _) = setup(brightness_mock(vec![], vec![]));
+        controller.target = old_target;
+        controller.current = Some(7);
+
+        controller.update_target(10);
+
+        assert_eq!(old_target, controller.target);
+    }
+
+    #[test]
+    fn test_update_target_ignore_when_desired_equals_current() {
+        let old_target = Some(target(10, -20));
+        let (mut controller, _, _) = setup(brightness_mock(vec![], vec![]));
+        controller.target = old_target;
+        controller.current = Some(7);
+
+        controller.update_target(7);
+
+        assert_eq!(old_target, controller.target);
+    }
+
+    #[test]
+    fn test_update_target_finds_minimal_step_that_reaches_target_within_transition_duration() {
+        let (mut controller, _, _) = setup(brightness_mock(vec![], vec![]));
+
+        let test_cases = vec![
+            (0, 1, 1),
+            (10000, 10001, 1),
+            (10000, 10013, 1),
+            (10000, 10199, 1),
+            (10000, 10200, 1),
+            (10000, 10413, 3),
+            (10000, 11732, 9),
+            (10000, 9999, -1),
+            (10000, 9983, -1),
+            (10000, 9801, -1),
+            (10000, 9800, -1),
+            (10000, 9473, -3),
+            (10000, 8433, -8),
+        ];
+
+        for (current, desired, expected_step) in test_cases {
+            controller.current = Some(current);
+            controller.update_target(desired);
+            assert_eq!(Some(target(desired, expected_step)), controller.target);
+        }
+    }
+
+    #[apply(test!)]
+    async fn test_transition_reset_target_when_reached() {
+        let (mut controller, _, _) = setup(brightness_mock(vec![], vec![]));
+        controller.current = Some(10);
+        controller.target = Some(target(10, 20));
+
+        controller.transition().await;
+
+        assert_eq!(None, controller.target);
+    }
+
+    #[apply(test!)]
+    async fn test_transition_increases_brightness_with_next_step() {
+        let (mut controller, _, _) = setup(brightness_mock(vec![], vec![12]));
+        controller.current = Some(10);
+        controller.target = Some(target(20, 2));
+
+        controller.transition().await;
+
+        assert_eq!(Some(12), controller.current);
+        assert!(is_brightness_spent(&controller.brightness));
+    }
+
+    #[apply(test!)]
+    async fn test_transition_decreases_brightness_with_next_step() {
+        let (mut controller, _, _) = setup(brightness_mock(vec![], vec![9]));
+        controller.current = Some(10);
+        controller.target = Some(target(9, -1));
+
+        controller.transition().await;
+
+        assert_eq!(Some(9), controller.current);
+        assert!(is_brightness_spent(&controller.brightness));
+    }
+
+    #[apply(test!)]
+    async fn test_transition_doesnt_decrease_below_0() {
+        let (mut controller, _, _) = setup(brightness_mock(vec![], vec![0]));
+        controller.current = Some(1);
+        controller.target = Some(target(0, -2)); // step of -2 should not overshoot
+
+        controller.transition().await;
+
+        assert_eq!(Some(0), controller.current);
+        assert!(is_brightness_spent(&controller.brightness));
+    }
+
+    #[test]
+    fn test_target_reached() {
+        assert!(!target(10, 1).reached(9));
+        assert!(target(10, 1).reached(10));
+        assert!(target(10, 1).reached(11));
+
+        assert!(target(10, -1).reached(9));
+        assert!(target(10, -1).reached(10));
+        assert!(!target(10, -1).reached(11));
+    }
+}

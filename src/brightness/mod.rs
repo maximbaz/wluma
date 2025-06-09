@@ -12,6 +12,12 @@ use crate::ErrorBox;
 pub enum Brightness {
     DdcUtil(ddcutil::DdcUtil),
     Backlight(backlight::Backlight),
+
+    #[cfg(test)]
+    Mock {
+        get: Vec<u64>,
+        set: Vec<u64>,
+    },
 }
 
 impl Brightness {
@@ -19,6 +25,9 @@ impl Brightness {
         match self {
             Brightness::DdcUtil(b) => b.get().await,
             Brightness::Backlight(b) => b.get().await,
+
+            #[cfg(test)]
+            Brightness::Mock { get, .. } => Ok(get.remove(0)),
         }
     }
 
@@ -26,6 +35,12 @@ impl Brightness {
         match self {
             Brightness::DdcUtil(b) => b.set(value).await,
             Brightness::Backlight(b) => b.set(value).await,
+
+            #[cfg(test)]
+            Brightness::Mock { set, .. } => {
+                assert_eq!(set.remove(0), value);
+                Ok(value)
+            }
         }
     }
 }
