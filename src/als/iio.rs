@@ -5,7 +5,6 @@ use smol::fs::{self, File};
 use smol::lock::Mutex;
 use smol::stream::StreamExt;
 use std::collections::HashMap;
-use std::error::Error;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use SensorType::*;
@@ -92,29 +91,23 @@ impl Als {
 async fn parse_illuminance_raw(path: PathBuf) -> Result<SensorType, ErrorBox> {
     Ok(Illuminance {
         value: Mutex::new(
-            if let Ok(f) = open_file(&path, "in_illuminance_raw").await {
-                f
-            } else {
-                open_file(&path, "in_illuminance0_raw").await?
-            },
+            open_file(&path, "in_illuminance_raw")
+                .or_else(|_| open_file(&path, "in_illuminance0_raw"))
+                .await?,
         ),
         scale: {
-            let mut f = if let Ok(f) = open_file(&path, "in_illuminance_scale").await {
-                f
-            } else {
-                open_file(&path, "in_illuminance0_scale").await?
-            };
-
-            read(&mut f).await.unwrap_or(1_f64)
+            open_file(&path, "in_illuminance_scale")
+                .or_else(|_| open_file(&path, "in_illuminance0_scale"))
+                .and_then(move |mut f| async move { read(&mut f).await })
+                .await
+                .unwrap_or(1_f64)
         },
         offset: {
-            let mut f = if let Ok(f) = open_file(&path, "in_illuminance_offset").await {
-                f
-            } else {
-                open_file(&path, "in_illuminance0_offset").await?
-            };
-
-            read(&mut f).await.unwrap_or(0_f64)
+            open_file(&path, "in_illuminance_offset")
+                .or_else(|_| open_file(&path, "in_illuminance0_offset"))
+                .and_then(move |mut f| async move { read(&mut f).await })
+                .await
+                .unwrap_or(0_f64)
         },
     })
 }
@@ -139,11 +132,9 @@ async fn parse_intensity_raw(path: PathBuf) -> Result<SensorType, ErrorBox> {
 async fn parse_illuminance_input(path: PathBuf) -> Result<SensorType, ErrorBox> {
     Ok(Illuminance {
         value: Mutex::new(
-            if let Ok(f) = open_file(&path, "in_illuminance_input").await {
-                f
-            } else {
-                open_file(&path, "in_illuminance0_input").await?
-            },
+            open_file(&path, "in_illuminance_input")
+                .or_else(|_| open_file(&path, "in_illuminance0_input"))
+                .await?,
         ),
         scale: 1_f64,
         offset: 0_f64,
@@ -159,7 +150,5 @@ async fn parse_intensity_rgb(path: PathBuf) -> Result<SensorType, ErrorBox> {
 }
 
 async fn open_file(path: &Path, name: &str) -> Result<File, ErrorBox> {
-    File::open(path.join(name))
-        .await
-        .map_err(Box::<dyn Error + Send + Sync>::from)
+    File::open(path.join(name)).await.map_err(ErrorBox::from)
 }
