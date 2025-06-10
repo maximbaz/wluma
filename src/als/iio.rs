@@ -1,5 +1,6 @@
 use crate::device_file::read;
 use crate::ErrorBox;
+use futures_util::TryFutureExt;
 use smol::fs::{self, File};
 use smol::lock::Mutex;
 use smol::stream::StreamExt;
@@ -34,41 +35,29 @@ impl Als {
             .await
             .map_err(|e| ErrorBox::from(format!("Can't enumerate iio devices: {e}")))?;
 
-        let e = 'find_e: {
-            while let Some(dir) = dir_stream.next().await {
-                let Ok(dir) = dir else { continue };
+        while let Some(e) = dir_stream.next().await {
+            let Ok(e) = e else { continue };
 
-                let name = fs::read_to_string(dir.path().join("name"))
+            let name = fs::read_to_string(e.path().join("name"))
+                .await
+                .unwrap_or_default();
+            let name = name.trim();
+
+            if ["als", "acpi-als", "apds9960"].contains(&name) {
+                // TODO should probably start from the `parse_illuminance_input` in the next major version
+                let sensor = parse_illuminance_raw(e.path())
+                    .or_else(|_| parse_illuminance_input(e.path()))
+                    .or_else(|_| parse_intensity_raw(e.path()))
+                    .or_else(|_| parse_intensity_rgb(e.path()))
                     .await
-                    .unwrap_or_default();
-                let name = name.trim();
+                    .map_err(|_| {
+                        ErrorBox::from(format!("failed to read sensor '{}'", e.path().display()))
+                    })?;
 
-                if ["als", "acpi-als", "apds9960"].contains(&name) {
-                    break 'find_e dir;
-                }
+                return Ok(Self { sensor, thresholds });
             }
-            return Err("No iio device found".into());
-        };
-
-        let sensor = 'sensor: {
-            // TODO should probably start from the `parse_illuminance_input` in the next major version
-            if let Ok(s) = parse_illuminance_raw(e.path()).await {
-                break 'sensor s;
-            }
-            if let Ok(s) = parse_illuminance_input(e.path()).await {
-                break 'sensor s;
-            }
-            if let Ok(s) = parse_intensity_raw(e.path()).await {
-                break 'sensor s;
-            }
-            if let Ok(s) = parse_intensity_rgb(e.path()).await {
-                break 'sensor s;
-            }
-
-            return Err(format!("failed to read sensor '{}'", e.path().display()).into());
-        };
-
-        Ok(Self { sensor, thresholds })
+        }
+        Err("No iio device found".into())
     }
 
     pub async fn get(&self) -> Result<String, ErrorBox> {

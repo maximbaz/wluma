@@ -154,7 +154,5 @@ async fn main() {
 
     log::info!("Continue adjusting brightness and wluma will learn your preference over time.");
 
-    for task in tasks {
-        task.await;
-    }
+    futures_util::future::join_all(tasks).await;
 }
