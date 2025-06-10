@@ -34,15 +34,12 @@ impl Als {
             .await
             .map_err(|e| ErrorBox::from(format!("Can't enumerate iio devices: {e}")))?;
 
-        while let Some(e) = dir_stream.next().await {
-            let Ok(e) = e else { continue };
-
+        while let Some(Ok(e)) = dir_stream.next().await {
             let name = fs::read_to_string(e.path().join("name"))
                 .await
                 .unwrap_or_default();
-            let name = name.trim();
 
-            if ["als", "acpi-als", "apds9960"].contains(&name) {
+            if ["als", "acpi-als", "apds9960"].contains(&name.trim()) {
                 // TODO should probably start from the `parse_illuminance_input` in the next major version
                 let sensor = parse_illuminance_raw(e.path())
                     .or_else(|_| parse_illuminance_input(e.path()))
@@ -50,7 +47,7 @@ impl Als {
                     .or_else(|_| parse_intensity_rgb(e.path()))
                     .await
                     .map_err(|_| {
-                        ErrorBox::from(format!("failed to read sensor '{}'", e.path().display()))
+                        ErrorBox::from(format!("Failed to read sensor '{}'", e.path().display()))
                     })?;
 
                 return Ok(Self { sensor, thresholds });

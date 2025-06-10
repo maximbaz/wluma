@@ -8,8 +8,6 @@ const INITIAL_TIMEOUT_SECS: u64 = 5;
 const PENDING_COOLDOWN_RESET: u8 = 15;
 const NEXT_ALS_COOLDOWN_RESET: u8 = 15;
 
-/// This is an enum instead of a trait because of the async `adjust` function, which would make a
-/// trait not object-safe, requiring many workarounds.
 #[allow(clippy::large_enum_variant)]
 pub enum Controller {
     Adaptive(adaptive::Controller),
