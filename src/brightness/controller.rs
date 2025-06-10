@@ -49,34 +49,31 @@ impl Controller {
     }
 
     async fn step(&mut self) {
-        let new_brightness = match self.brightness.get().await {
-            Ok(new_brightness) => new_brightness,
-            Err(err) => {
-                log::error!("Unable to get brightness value: {:?}", err);
-                return;
+        match self.brightness.get().await {
+            Ok(new_brightness) => {
+                let predicted_value = self
+                    .prediction_rx
+                    .recv_maybe_last()
+                    .await
+                    .expect("prediction_rx closed unexpectedly");
+
+                // 1. check if user wants to learn a new value - this overrides any ongoing activity
+                if Some(new_brightness) != self.current {
+                    return self.update_current(new_brightness).await;
+                }
+
+                // 2. check if predictor wants to set a new value
+                if let Some(desired) = predicted_value {
+                    self.update_target(desired);
+                }
+
+                // 3. continue the transition if there is one in progress
+                if self.target.is_some() {
+                    return self.transition().await;
+                }
             }
+            Err(err) => log::error!("Unable to get brightness value: {:?}", err),
         };
-
-        let predicted_value = self
-            .prediction_rx
-            .recv_maybe_last()
-            .await
-            .expect("prediction_rx closed unexpectedly");
-
-        // 1. check if user wants to learn a new value - this overrides any ongoing activity
-        if Some(new_brightness) != self.current {
-            return self.update_current(new_brightness).await;
-        }
-
-        // 2. check if predictor wants to set a new value
-        if let Some(desired) = predicted_value {
-            self.update_target(desired);
-        }
-
-        // 3. continue the transition if there is one in progress
-        if self.target.is_some() {
-            return self.transition().await;
-        }
 
         // 4. nothing to do, sleep and check again
         // TODO: replace with inotify events on brightness device file and avoid sleep loop

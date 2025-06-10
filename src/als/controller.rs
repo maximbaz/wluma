@@ -23,19 +23,16 @@ impl Controller {
     }
 
     async fn step(&mut self) {
-        let value = match self.als.get().await {
-            Ok(value) => value,
-            Err(err) => {
-                log::error!("Unable to get ALS value: {:?}", err);
-                return;
+        match self.als.get().await {
+            Ok(value) => {
+                futures_util::future::try_join_all(
+                    self.value_txs.iter().map(|chan| chan.send(value.clone())),
+                )
+                .await
+                .expect("Unable to send new ALS value, channel is dead");
             }
+            Err(err) => log::error!("Unable to get ALS value: {:?}", err),
         };
-
-        futures_util::future::try_join_all(
-            self.value_txs.iter().map(|chan| chan.send(value.clone())),
-        )
-        .await
-        .expect("Unable to send new ALS value, channel is dead");
 
         Timer::after(Duration::from_millis(WAITING_SLEEP_MS)).await;
     }
