@@ -1,11 +1,7 @@
 use super::{INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET};
 use crate::{channel_ext::ReceiverExt, predictor::data::Entry};
 use itertools::Itertools;
-use smol::{
-    channel::{Receiver, Sender},
-    future::FutureExt,
-    Timer,
-};
+use smol::channel::{Receiver, Sender};
 use std::{collections::HashMap, time::Duration};
 
 pub struct Controller {
@@ -50,11 +46,7 @@ impl Controller {
             // ALS controller is expected to send the initial value on this channel asap
             self.last_als = Some(
                 self.als_rx
-                    .recv()
-                    .or(async {
-                        Timer::after(Duration::from_secs(INITIAL_TIMEOUT_SECS)).await;
-                        panic!("Did not receive initial ALS value in time");
-                    })
+                    .recv_or_panic_after_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
                     .await
                     .expect("als_rx closed unexpectedly"),
             );

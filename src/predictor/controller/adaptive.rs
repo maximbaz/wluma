@@ -1,8 +1,4 @@
-use smol::{
-    channel::{Receiver, Sender},
-    future::FutureExt,
-    Timer,
-};
+use smol::channel::{Receiver, Sender};
 
 use super::{INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET};
 use crate::{
@@ -61,11 +57,7 @@ impl Controller {
             // ALS controller is expected to send the initial value on this channel asap
             self.last_als = Some(
                 self.als_rx
-                    .recv()
-                    .or(async {
-                        Timer::after(Duration::from_secs(INITIAL_TIMEOUT_SECS)).await;
-                        panic!("Did not receive initial ALS value in time");
-                    })
+                    .recv_or_panic_after_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
                     .await
                     .expect("als_rx closed unexpectedly"),
             );
@@ -73,11 +65,7 @@ impl Controller {
             // Brightness controller is expected to send the initial value on this channel asap
             let initial_brightness = self
                 .user_rx
-                .recv()
-                .or(async {
-                    Timer::after(Duration::from_secs(INITIAL_TIMEOUT_SECS)).await;
-                    panic!("Did not receive initial brightness value in time");
-                })
+                .recv_or_panic_after_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
                 .await
                 .expect("user_rx closed unexpectedly");
 
