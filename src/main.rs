@@ -135,34 +135,28 @@ async fn main() {
         )
         .await;
 
-    tasks.push(smol::spawn(async {
-        let mut webcam_task = None;
-        let als: als::Als = match config.als {
-            config::Als::Iio { path, thresholds } => als::Als::Iio(
-                als::iio::Als::new(&path, thresholds)
-                    .await
-                    .expect("Unable to initialize ALS IIO sensor"),
-            ),
-            config::Als::Time { thresholds } => als::Als::Time(als::time::Als::new(thresholds)),
-            config::Als::Webcam { video, thresholds } => als::Als::Webcam({
-                let (webcam_tx, webcam_rx) = channel::bounded(128);
-
+    let als: als::Als = match config.als {
+        config::Als::Iio { path, thresholds } => als::Als::Iio(
+            als::iio::Als::new(&path, thresholds)
+                .await
+                .expect("Unable to initialize ALS IIO sensor"),
+        ),
+        config::Als::Time { thresholds } => als::Als::Time(als::time::Als::new(thresholds)),
+        config::Als::Webcam { video, thresholds } => als::Als::Webcam({
+            let (webcam_tx, webcam_rx) = channel::bounded(128);
+            tasks.push(smol::spawn({
                 // TODO: make async
-                webcam_task = Some(smol::unblock(move || {
+                smol::unblock(move || {
                     als::webcam::Webcam::new(webcam_tx, video).run();
-                }));
-                als::webcam::Als::new(webcam_rx, thresholds)
-            }),
-            config::Als::None => als::Als::None(Default::default()),
-        };
+                })
+            }));
+            als::webcam::Als::new(webcam_rx, thresholds)
+        }),
+        config::Als::None => als::Als::None(Default::default()),
+    };
 
-        let mut controller = als::controller::Controller::new(als, als_txs);
-
-        smol::future::zip(
-            controller.run(),
-            webcam_task.unwrap_or_else(|| smol::spawn(async {})),
-        )
-        .await;
+    tasks.push(smol::spawn(async {
+        als::controller::Controller::new(als, als_txs).run().await;
     }));
 
     log::info!("Continue adjusting brightness and wluma will learn your preference over time.");
