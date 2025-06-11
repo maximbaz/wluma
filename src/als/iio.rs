@@ -1,9 +1,8 @@
 use crate::device_file::read;
 use crate::ErrorBox;
-use futures_util::TryFutureExt;
-use smol::fs::{self, File};
+use futures_util::{FutureExt, StreamExt, TryFutureExt};
+use smol::fs::File;
 use smol::lock::Mutex;
-use smol::stream::StreamExt;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
@@ -30,30 +29,36 @@ pub struct Als {
 
 impl Als {
     pub async fn new(base_path: &str, thresholds: HashMap<u64, String>) -> Result<Self, ErrorBox> {
-        let mut dir_stream = smol::fs::read_dir(base_path)
+        smol::fs::read_dir(base_path)
             .await
-            .map_err(|e| ErrorBox::from(format!("Can't enumerate iio devices: {e}")))?;
-
-        while let Some(Ok(e)) = dir_stream.next().await {
-            let name = fs::read_to_string(e.path().join("name"))
-                .await
-                .unwrap_or_default();
-
-            if ["als", "acpi-als", "apds9960"].contains(&name.trim()) {
+            .map_err(|e| ErrorBox::from(format!("Can't enumerate iio devices: {e}")))?
+            .filter_map(|r| async { r.ok() })
+            .then(|entry| {
+                smol::fs::read_to_string(entry.path().join("name")).map(|name| (name, entry))
+            })
+            .filter_map(|(name, entry)| async {
+                ["als", "acpi-als", "apds9960"]
+                    .contains(&name.unwrap_or_default().trim())
+                    .then_some(entry)
+            })
+            .filter_map(|entry| async move {
                 // TODO should probably start from the `parse_illuminance_input` in the next major version
-                let sensor = parse_illuminance_raw(e.path())
-                    .or_else(|_| parse_illuminance_input(e.path()))
-                    .or_else(|_| parse_intensity_raw(e.path()))
-                    .or_else(|_| parse_intensity_rgb(e.path()))
+                parse_illuminance_raw(entry.path())
+                    .or_else(|_| parse_illuminance_input(entry.path()))
+                    .or_else(|_| parse_intensity_raw(entry.path()))
+                    .or_else(|_| parse_intensity_rgb(entry.path()))
                     .await
-                    .map_err(|_| {
-                        ErrorBox::from(format!("Failed to read sensor '{}'", e.path().display()))
-                    })?;
-
-                return Ok(Self { sensor, thresholds });
-            }
-        }
-        Err("No iio device found".into())
+                    .map(Some)
+                    .unwrap_or_else(|_| {
+                        log::error!("Failed to read sensor '{}'", entry.path().display());
+                        None
+                    })
+            })
+            .boxed()
+            .next()
+            .await
+            .map(|sensor| Self { sensor, thresholds })
+            .ok_or_else(|| ErrorBox::from("No iio device found"))
     }
 
     pub async fn get(&self) -> Result<String, ErrorBox> {
