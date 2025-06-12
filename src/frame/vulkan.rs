@@ -1,6 +1,6 @@
 use crate::frame::compute_perceived_lightness_percent;
 use crate::frame::object::Object;
-use crate::ErrorBox;
+use anyhow::{anyhow, Result};
 use ash::khr::external_memory_fd::Device as KHRDevice;
 use ash::{vk, Device, Entry, Instance};
 use drm_fourcc::DrmFourcc;
@@ -35,7 +35,7 @@ pub struct Vulkan {
 }
 
 impl Vulkan {
-    pub fn new() -> Result<Self, ErrorBox> {
+    pub fn new() -> Result<Self> {
         let app_name = CString::new("wluma")?;
         let app_version: u32 = vk::make_api_version(
             0,
@@ -75,7 +75,7 @@ impl Vulkan {
         };
         let physical_device = *physical_devices
             .first()
-            .ok_or("Unable to find a physical device")?;
+            .ok_or(anyhow!("Unable to find a physical device"))?;
 
         let queue_family_index = 0;
         let queue_info = &[vk::DeviceQueueCreateInfo::default()
@@ -152,7 +152,7 @@ impl Vulkan {
         })
     }
 
-    pub fn luma_percent_from_external_fd(&mut self, frame: &Object) -> Result<u8, ErrorBox> {
+    pub fn luma_percent_from_external_fd(&mut self, frame: &Object) -> Result<u8> {
         let (frame_image, frame_image_memory) = self.init_frame_image(frame)?;
 
         let result = self.luma_percent(&frame_image)?;
@@ -165,7 +165,7 @@ impl Vulkan {
         Ok(result)
     }
 
-    pub fn luma_percent_from_internal_fd(&mut self) -> Result<u8, ErrorBox> {
+    pub fn luma_percent_from_internal_fd(&mut self) -> Result<u8> {
         let frame_image = self.exportable_frame_image.unwrap();
 
         let result = self.luma_percent(&frame_image)?;
@@ -173,9 +173,13 @@ impl Vulkan {
         Ok(result)
     }
 
-    fn luma_percent(&self, frame_image: &vk::Image) -> Result<u8, ErrorBox> {
-        let image = self.image.ok_or("Unable to borrow the Vulkan image")?;
-        let buffer_memory = self.buffer_memory.ok_or("Unable to borrow buffer memory")?;
+    fn luma_percent(&self, frame_image: &vk::Image) -> Result<u8> {
+        let image = self
+            .image
+            .ok_or(anyhow!("Unable to borrow the Vulkan image"))?;
+        let buffer_memory = self
+            .buffer_memory
+            .ok_or(anyhow!("Unable to borrow buffer memory"))?;
 
         self.begin_commands()?;
 
@@ -219,7 +223,7 @@ impl Vulkan {
         Ok(result)
     }
 
-    fn init_image(&mut self, frame: &Object) -> Result<(), ErrorBox> {
+    fn init_image(&mut self, frame: &Object) -> Result<()> {
         let mip_levels = f64::max(frame.width.into(), frame.height.into())
             .log2()
             .floor() as u32;
@@ -308,7 +312,9 @@ impl Vulkan {
             &device_memory_properties,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )
-        .ok_or("Unable to find suitable memory type for the buffer")?;
+        .ok_or(anyhow!(
+            "Unable to find suitable memory type for the buffer"
+        ))?;
 
         let allocate_info = vk::MemoryAllocateInfo {
             allocation_size: buffer_memory_req.size,
@@ -345,10 +351,7 @@ impl Vulkan {
         Ok(())
     }
 
-    fn init_frame_image(
-        &mut self,
-        frame: &Object,
-    ) -> Result<(vk::Image, vk::DeviceMemory), ErrorBox> {
+    fn init_frame_image(&mut self, frame: &Object) -> Result<(vk::Image, vk::DeviceMemory)> {
         assert_eq!(
             1, frame.num_objects,
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
@@ -450,10 +453,7 @@ impl Vulkan {
         Ok((frame_image, frame_image_memory))
     }
 
-    pub fn init_exportable_frame_image(
-        &mut self,
-        frame: &Object,
-    ) -> Result<(i32, u64, u64, u64), ErrorBox> {
+    pub fn init_exportable_frame_image(&mut self, frame: &Object) -> Result<(i32, u64, u64, u64)> {
         assert_eq!(
             1, frame.num_objects,
             "Frames with multiple objects are not supported yet, use WLR_DRM_NO_MODIFIERS=1 as described in README and follow issue #8"
@@ -756,7 +756,7 @@ impl Vulkan {
         mip_level: u32,
         width: u32,
         height: u32,
-    ) -> Result<(), ErrorBox> {
+    ) -> Result<()> {
         self.add_barrier(
             image,
             mip_level,
@@ -782,7 +782,7 @@ impl Vulkan {
                 depth: 1,
             });
 
-        let buffer = self.buffer.ok_or("Unable to borrow buffer")?;
+        let buffer = self.buffer.ok_or(anyhow!("Unable to borrow buffer"))?;
 
         unsafe {
             self.device.cmd_copy_image_to_buffer(
@@ -797,7 +797,7 @@ impl Vulkan {
         Ok(())
     }
 
-    fn begin_commands(&self) -> Result<(), ErrorBox> {
+    fn begin_commands(&self) -> Result<()> {
         let command_buffer_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
@@ -810,7 +810,7 @@ impl Vulkan {
         Ok(())
     }
 
-    fn submit_commands(&self) -> Result<(), ErrorBox> {
+    fn submit_commands(&self) -> Result<()> {
         unsafe {
             // End the command buffer
             self.device
@@ -886,7 +886,7 @@ fn find_memory_type_index(
         .map(|(index, _)| index as _)
 }
 
-fn map_drm_format(format: u32) -> Result<vk::Format, ErrorBox> {
+fn map_drm_format(format: u32) -> Result<vk::Format> {
     let drm = DrmFourcc::try_from(format)?;
     log::debug!("Processing frame in DRM format {drm}");
 
@@ -904,6 +904,8 @@ fn map_drm_format(format: u32) -> Result<vk::Format, ErrorBox> {
         DrmFourcc::Xbgr8888 => Ok(vk::Format::R8G8B8A8_UNORM),
         DrmFourcc::Bgrx8888 => Ok(vk::Format::B8G8R8_UNORM),
         DrmFourcc::Xrgb8888 => Ok(vk::Format::B8G8R8A8_UNORM),
-        _ => Err(format!("Unsupported DRM format: {format}. Please report on GitHub.").into()),
+        _ => Err(anyhow!(
+            "Unsupported DRM format: {format}. Please report on GitHub."
+        )),
     }
 }

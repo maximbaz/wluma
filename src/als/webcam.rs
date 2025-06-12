@@ -1,6 +1,6 @@
 use crate::channel_ext::ReceiverExt;
 use crate::frame::compute_perceived_lightness_percent;
-use crate::ErrorBox;
+use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use smol::channel::{Receiver, Sender};
 use smol::lock::Mutex;
@@ -44,7 +44,7 @@ impl Webcam {
         thread::sleep(Duration::from_millis(WAITING_SLEEP_MS));
     }
 
-    fn frame(&mut self) -> Result<(Vec<u8>, usize), ErrorBox> {
+    fn frame(&mut self) -> Result<(Vec<u8>, usize)> {
         let (device, pixels) = Self::setup(self.video)?;
         let mut stream = Stream::new(&device, Type::VideoCapture)?;
         let (rgbs, _) = stream.next()?;
@@ -52,7 +52,7 @@ impl Webcam {
         Ok((rgbs.to_vec(), pixels))
     }
 
-    fn setup(video: usize) -> Result<(Device, usize), ErrorBox> {
+    fn setup(video: usize) -> Result<(Device, usize)> {
         let device = Device::new(video)?;
         let mut format = device.format()?;
         format.fourcc = FourCC::new(b"RGB3");
@@ -67,7 +67,7 @@ impl Webcam {
                     .collect_vec()
             })
             .min_by(|&(w1, h1), &(w2, h2)| h1.cmp(&h2).then(w1.cmp(&w2)))
-            .ok_or("Unable to find minimum resolution")?;
+            .ok_or(anyhow!("Unable to find minimum resolution"))?;
 
         format.height = height;
         format.width = width;
@@ -92,7 +92,7 @@ impl Als {
         }
     }
 
-    pub async fn get(&self) -> Result<String, ErrorBox> {
+    pub async fn get(&self) -> Result<String> {
         let raw = self.get_raw().await?;
         let profile = super::find_profile(raw, &self.thresholds);
 
@@ -100,7 +100,7 @@ impl Als {
         Ok(profile)
     }
 
-    async fn get_raw(&self) -> Result<u64, ErrorBox> {
+    async fn get_raw(&self) -> Result<u64> {
         let new_value = self
             .webcam_rx
             .recv_maybe_last()
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_get_raw_returns_default_value_when_no_data_from_webcam() -> Result<(), ErrorBox> {
+    async fn test_get_raw_returns_default_value_when_no_data_from_webcam() -> Result<()> {
         let (als, _) = setup().await;
 
         assert_eq!(DEFAULT_LUX, als.get_raw().await?);
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_get_raw_returns_value_from_webcam() -> Result<(), ErrorBox> {
+    async fn test_get_raw_returns_value_from_webcam() -> Result<()> {
         let (als, webcam_tx) = setup().await;
 
         webcam_tx.send(42).await?;
@@ -145,7 +145,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_get_raw_returns_most_recent_value_from_webcam() -> Result<(), ErrorBox> {
+    async fn test_get_raw_returns_most_recent_value_from_webcam() -> Result<()> {
         let (als, webcam_tx) = setup().await;
 
         webcam_tx.send(42).await?;
@@ -157,8 +157,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_get_raw_returns_last_known_value_from_webcam_when_no_new_data(
-    ) -> Result<(), ErrorBox> {
+    async fn test_get_raw_returns_last_known_value_from_webcam_when_no_new_data() -> Result<()> {
         let (als, webcam_tx) = setup().await;
 
         webcam_tx.send(42).await?;

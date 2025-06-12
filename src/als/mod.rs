@@ -1,7 +1,6 @@
+use anyhow::Result;
 use itertools::Itertools;
 use std::collections::HashMap;
-
-use crate::ErrorBox;
 
 pub mod controller;
 pub mod iio;
@@ -18,7 +17,7 @@ pub enum Als {
 }
 
 impl Als {
-    pub async fn get(&self) -> Result<String, ErrorBox> {
+    pub async fn get(&self) -> Result<String> {
         match self {
             Als::Webcam(als) => als.get().await,
             Als::Iio(als) => als.get().await,

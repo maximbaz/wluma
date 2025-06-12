@@ -1,5 +1,5 @@
 use crate::device_file::{read, write};
-use crate::ErrorBox;
+use anyhow::{anyhow, Error, Result};
 use dbus::channel::Sender;
 use dbus::{self, blocking::Connection, Message};
 use inotify::{Inotify, WatchMask};
@@ -25,7 +25,7 @@ pub struct Backlight {
 }
 
 impl Backlight {
-    pub async fn new(path: &str, min_brightness: u64) -> Result<Self, ErrorBox> {
+    pub async fn new(path: &str, min_brightness: u64) -> Result<Self> {
         let brightness_path = Path::new(path).join("brightness");
 
         let current_brightness = fs::read(&brightness_path)?;
@@ -47,7 +47,7 @@ impl Backlight {
             let id = Path::new(path)
                 .file_name()
                 .and_then(|x| x.to_str())
-                .ok_or("Unable to identify backlight ID")?;
+                .ok_or(anyhow!("Unable to identify backlight ID"))?;
 
             let subsystem = Path::new(path)
                 .parent()
@@ -57,7 +57,7 @@ impl Backlight {
                     "backlight" | "leds" => Some(x),
                     _ => None,
                 })
-                .ok_or(format!(
+                .ok_or(anyhow!(
                     "Unable to identify backlight subsystem out of {path}, please open an issue on GitHub"
                 ))?;
 
@@ -107,8 +107,8 @@ impl Backlight {
         })
     }
 
-    pub async fn get(&mut self) -> Result<u64, ErrorBox> {
-        async fn update(this: &mut Backlight) -> Result<u64, ErrorBox> {
+    pub async fn get(&mut self) -> Result<u64> {
+        async fn update(this: &mut Backlight) -> Result<u64> {
             let value = read(&mut this.file).await? as u64;
             this.current = Some(value);
             Ok(value)
@@ -130,15 +130,20 @@ impl Backlight {
         }
     }
 
-    pub async fn set(&mut self, value: u64) -> Result<u64, ErrorBox> {
+    pub async fn set(&mut self, value: u64) -> Result<u64> {
         let value = value.clamp(self.min_brightness, self.max_brightness);
 
         if self.has_write_permission {
             write(&mut self.file, value as f64).await?;
         } else if let Some(dbus) = &self.dbus {
             dbus.connection
-                .send(dbus.message.duplicate()?.append1(value as u32))
-                .map_err(|_| "Unable to send brightness change message via dbus")?;
+                .send(
+                    dbus.message
+                        .duplicate()
+                        .map_err(Error::msg)?
+                        .append1(value as u32),
+                )
+                .map_err(|_| anyhow!("Unable to send brightness change message via dbus"))?;
             self.pending_dbus_write = true;
         } else {
             Err(std::io::Error::from(ErrorKind::PermissionDenied))?

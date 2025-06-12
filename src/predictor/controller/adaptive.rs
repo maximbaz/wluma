@@ -173,9 +173,8 @@ impl Controller {
 
 #[cfg(test)]
 mod tests {
-    use crate::ErrorBox;
-
     use super::*;
+    use anyhow::Result;
     use itertools::{iproduct, Itertools};
     use macro_rules_attribute::apply;
     use smol::channel;
@@ -186,7 +185,7 @@ mod tests {
     const ALS_DIM: &str = "dim";
     const ALS_BRIGHT: &str = "bright";
 
-    async fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>), ErrorBox> {
+    async fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>)> {
         let (als_tx, als_rx) = channel::bounded(128);
         let (user_tx, user_rx) = channel::bounded(128);
         let (prediction_tx, prediction_rx) = channel::bounded(128);
@@ -197,7 +196,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_process_first_user_change() -> Result<(), ErrorBox> {
+    async fn test_process_first_user_change() -> Result<()> {
         let (mut controller, user_tx, _) = setup().await?;
 
         // User changes brightness to value 33 for a given lux and luma
@@ -211,7 +210,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_process_several_continuous_user_changes() -> Result<(), ErrorBox> {
+    async fn test_process_several_continuous_user_changes() -> Result<()> {
         let (mut controller, user_tx, _) = setup().await?;
 
         // User initiates brightness change for a given lux and luma to value 33...
@@ -232,7 +231,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_process_learns_user_change_after_cooldown() -> Result<(), ErrorBox> {
+    async fn test_process_learns_user_change_after_cooldown() -> Result<()> {
         let (mut controller, user_tx, _) = setup().await?;
 
         // User changes brightness to a desired value
@@ -271,7 +270,7 @@ mod tests {
     // *UPDATE*: experimenting with not changing other envs
 
     #[apply(test!)]
-    async fn test_learn_data_cleanup() -> Result<(), ErrorBox> {
+    async fn test_learn_data_cleanup() -> Result<()> {
         let (mut controller, _, _) = setup().await?;
 
         let pending = Entry::new(ALS_DIM, 20, 30);
@@ -323,7 +322,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_predict_no_data_points() -> Result<(), ErrorBox> {
+    async fn test_predict_no_data_points() -> Result<()> {
         let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![];
 
@@ -336,7 +335,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_predict_no_data_points_for_current_als_profile() -> Result<(), ErrorBox> {
+    async fn test_predict_no_data_points_for_current_als_profile() -> Result<()> {
         let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![
             Entry::new(ALS_DARK, 50, 100),
@@ -352,7 +351,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_predict_one_data_point() -> Result<(), ErrorBox> {
+    async fn test_predict_one_data_point() -> Result<()> {
         let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![Entry::new(ALS_DIM, 10, 15)];
 
@@ -363,7 +362,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_predict_known_conditions() -> Result<(), ErrorBox> {
+    async fn test_predict_known_conditions() -> Result<()> {
         let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![Entry::new(ALS_DIM, 10, 15), Entry::new(ALS_DIM, 20, 30)];
 
@@ -374,7 +373,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_predict_approximate() -> Result<(), ErrorBox> {
+    async fn test_predict_approximate() -> Result<()> {
         let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![
             Entry::new(ALS_DIM, 10, 15),
@@ -393,7 +392,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_predict_only_uses_data_for_current_als_profile() -> Result<(), ErrorBox> {
+    async fn test_predict_only_uses_data_for_current_als_profile() -> Result<()> {
         let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![
             Entry::new(ALS_DIM, 10, 15),

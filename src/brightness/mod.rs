@@ -2,11 +2,10 @@ mod backlight;
 mod controller;
 mod ddcutil;
 
+use anyhow::Result;
 pub use backlight::Backlight;
 pub use controller::Controller;
 pub use ddcutil::DdcUtil;
-
-use crate::ErrorBox;
 
 #[allow(clippy::large_enum_variant)]
 pub enum Brightness {
@@ -21,7 +20,7 @@ pub enum Brightness {
 }
 
 impl Brightness {
-    pub async fn get(&mut self) -> Result<u64, ErrorBox> {
+    pub async fn get(&mut self) -> Result<u64> {
         match self {
             Brightness::DdcUtil(b) => b.get().await,
             Brightness::Backlight(b) => b.get().await,
@@ -31,7 +30,7 @@ impl Brightness {
         }
     }
 
-    pub async fn set(&mut self, value: u64) -> Result<u64, ErrorBox> {
+    pub async fn set(&mut self, value: u64) -> Result<u64> {
         match self {
             Brightness::DdcUtil(b) => b.set(value).await,
             Brightness::Backlight(b) => b.set(value).await,

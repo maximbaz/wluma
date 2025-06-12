@@ -131,7 +131,7 @@ impl Controller {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ErrorBox;
+    use anyhow::Result;
     use macro_rules_attribute::apply;
     use smol::channel;
     use smol_macros::test;
@@ -160,7 +160,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_step_first_run() -> Result<(), ErrorBox> {
+    async fn test_step_first_run() -> Result<()> {
         let (mut controller, prediction_tx, user_rx) = setup(brightness_mock(vec![42], vec![]));
 
         // even if predictor already wants a change...
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_step_first_run_brightness_zero() -> Result<(), ErrorBox> {
+    async fn test_step_first_run_brightness_zero() -> Result<()> {
         // if the current brightness value is zero...
         let (mut controller, prediction_tx, user_rx) = setup(brightness_mock(vec![0], vec![]));
 
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_step_user_changed_brightness() -> Result<(), ErrorBox> {
+    async fn test_step_user_changed_brightness() -> Result<()> {
         let (mut controller, prediction_tx, user_rx) = setup(brightness_mock(vec![42], vec![]));
 
         // when last brightness differs from the current one

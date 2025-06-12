@@ -1,9 +1,8 @@
+use anyhow::{anyhow, Result};
 use ddc_hi::{Ddc, Display, FeatureCode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use smol::lock::Mutex;
-
-use crate::ErrorBox;
 
 lazy_static! {
     static ref DDC_MUTEX: Mutex<()> = Mutex::new(());
@@ -18,10 +17,10 @@ pub struct DdcUtil {
 }
 
 impl DdcUtil {
-    pub fn new(name: &str, min_brightness: u64) -> Result<Self, ErrorBox> {
+    pub fn new(name: &str, min_brightness: u64) -> Result<Self> {
         let mut display = find_display_by_name(name, true)
             .or_else(|| find_display_by_name(name, false))
-            .ok_or("Unable to find display")?;
+            .ok_or(anyhow!("Unable to find display"))?;
         let max_brightness = get_max_brightness(&mut display)?;
 
         Ok(Self {
@@ -31,7 +30,7 @@ impl DdcUtil {
         })
     }
 
-    pub async fn get(&mut self) -> Result<u64, ErrorBox> {
+    pub async fn get(&mut self) -> Result<u64> {
         let _lock = DDC_MUTEX.lock().await;
         Ok(self
             .display
@@ -41,7 +40,7 @@ impl DdcUtil {
             .value() as u64)
     }
 
-    pub async fn set(&mut self, value: u64) -> Result<u64, ErrorBox> {
+    pub async fn set(&mut self, value: u64) -> Result<u64> {
         let _lock = DDC_MUTEX.lock().await;
         let value = value.clamp(self.min_brightness, self.max_brightness);
         self.display
@@ -52,7 +51,7 @@ impl DdcUtil {
     }
 }
 
-fn get_max_brightness(display: &mut Display) -> Result<u64, ErrorBox> {
+fn get_max_brightness(display: &mut Display) -> Result<u64> {
     Ok(display
         .handle
         .get_vcp_feature(DDC_BRIGHTNESS_FEATURE)?

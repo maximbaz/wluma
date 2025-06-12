@@ -1,8 +1,7 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
-
-use crate::ErrorBox;
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct Data {
@@ -33,11 +32,11 @@ impl Data {
             .unwrap_or_else(|| Self::new(output_name))
     }
 
-    pub fn save(&self) -> Result<(), ErrorBox> {
+    pub fn save(&self) -> Result<()> {
         Ok(serde_yaml::to_writer(self.write_file()?, self)?)
     }
 
-    fn read_file(path: PathBuf) -> Result<File, ErrorBox> {
+    fn read_file(path: PathBuf) -> Result<File> {
         Ok(OpenOptions::new()
             .create(true)
             .write(true)
@@ -46,8 +45,8 @@ impl Data {
             .open(path)?)
     }
 
-    fn write_file(&self) -> Result<File, ErrorBox> {
-        let path = Self::path(&self.output_name).unwrap();
+    fn write_file(&self) -> Result<File> {
+        let path = Self::path(&self.output_name)?;
         Ok(OpenOptions::new()
             .create(true)
             .write(true)
@@ -55,7 +54,7 @@ impl Data {
             .open(path)?)
     }
 
-    fn path(output_name: &str) -> Result<PathBuf, ErrorBox> {
+    fn path(output_name: &str) -> Result<PathBuf> {
         Ok(xdg::BaseDirectories::with_prefix("wluma")?
             .create_data_directory("")?
             .join(format!("{:}.yaml", output_name)))

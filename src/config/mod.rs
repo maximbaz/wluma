@@ -3,11 +3,10 @@ use std::collections::HashSet;
 use std::fs;
 mod app;
 mod file;
+use anyhow::{anyhow, Result};
 pub use app::*;
 
-use crate::ErrorBox;
-
-pub fn load() -> Result<app::Config, ErrorBox> {
+pub fn load() -> Result<app::Config> {
     validate(parse()?)
 }
 
@@ -115,7 +114,7 @@ fn parse() -> Result<app::Config, toml::de::Error> {
     })
 }
 
-fn validate(config: app::Config) -> Result<app::Config, ErrorBox> {
+fn validate(config: app::Config) -> Result<app::Config> {
     let names = config
         .output
         .iter()
@@ -126,8 +125,8 @@ fn validate(config: app::Config) -> Result<app::Config, ErrorBox> {
         .collect::<HashSet<_>>();
 
     match (names.len(), names.len() == config.output.len()) {
-        (0, _) => Err("No output or keyboard configured".into()),
-        (_, false) => Err("Names of all outputs and keyboards are not unique".into()),
+        (0, _) => Err(anyhow!("No output or keyboard configured")),
+        (_, false) => Err(anyhow!("Names of all outputs and keyboards are not unique")),
         _ => Ok(config),
     }
 }

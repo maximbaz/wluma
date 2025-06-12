@@ -153,9 +153,8 @@ impl Controller {
 
 #[cfg(test)]
 mod tests {
-    use crate::ErrorBox;
-
     use super::*;
+    use anyhow::Result;
     use macro_rules_attribute::apply;
     use smol::channel;
     use smol_macros::test;
@@ -164,7 +163,7 @@ mod tests {
     const ALS_UNKNOWN: &str = "not-configured-threshold";
     const ALS_DIM: &str = "dim";
 
-    async fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>), ErrorBox> {
+    async fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>)> {
         let (als_tx, als_rx) = channel::bounded(128);
         let (user_tx, user_rx) = channel::bounded(128);
         let (prediction_tx, prediction_rx) = channel::bounded(128);
@@ -183,7 +182,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_get_brightness_reduction() -> Result<(), ErrorBox> {
+    async fn test_get_brightness_reduction() -> Result<()> {
         let (mut controller, _, _) = setup().await?;
 
         assert_eq!(controller.get_brightness_reduction(100, ALS_DIM, 0), 0);
@@ -202,8 +201,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_no_brightness_reduction_for_not_configured_als_threshold() -> Result<(), ErrorBox>
-    {
+    async fn test_no_brightness_reduction_for_not_configured_als_threshold() -> Result<()> {
         let (mut controller, _, _) = setup().await?;
 
         assert_eq!(controller.get_brightness_reduction(100, ALS_UNKNOWN, 0), 0);
@@ -225,7 +223,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_change_in_luma() -> Result<(), ErrorBox> {
+    async fn test_change_in_luma() -> Result<()> {
         let (mut controller, user_tx, prediction_rx) = setup().await?;
 
         user_tx.send(100).await?;
@@ -243,7 +241,7 @@ mod tests {
     }
 
     #[apply(test!)]
-    async fn test_change_in_brightness_by_user() -> Result<(), ErrorBox> {
+    async fn test_change_in_brightness_by_user() -> Result<()> {
         let (mut controller, user_tx, prediction_rx) = setup().await?;
 
         // Initial brightness is used to predict right away

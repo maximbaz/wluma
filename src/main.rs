@@ -1,6 +1,4 @@
 use futures_util::stream::{self, StreamExt};
-use std::error::Error;
-
 use macro_rules_attribute::apply;
 use smol::channel;
 
@@ -14,8 +12,6 @@ mod predictor;
 
 /// Current app version (determined at compile-time).
 pub const VERSION: &str = env!("WLUMA_VERSION");
-
-pub type ErrorBox = Box<dyn Error + Send + Sync>;
 
 #[apply(smol_macros::main!)]
 async fn main() {

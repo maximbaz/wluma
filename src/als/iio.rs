@@ -1,5 +1,5 @@
 use crate::device_file::read;
-use crate::ErrorBox;
+use anyhow::{anyhow, Error, Result};
 use futures_util::{FutureExt, StreamExt, TryFutureExt};
 use smol::fs::File;
 use smol::lock::Mutex;
@@ -28,10 +28,10 @@ pub struct Als {
 }
 
 impl Als {
-    pub async fn new(base_path: &str, thresholds: HashMap<u64, String>) -> Result<Self, ErrorBox> {
+    pub async fn new(base_path: &str, thresholds: HashMap<u64, String>) -> Result<Self> {
         smol::fs::read_dir(base_path)
             .await
-            .map_err(|e| ErrorBox::from(format!("Can't enumerate iio devices: {e}")))?
+            .map_err(|e| anyhow!("Can't enumerate iio devices: {e}"))?
             .filter_map(|r| async { r.ok() })
             .then(|entry| {
                 smol::fs::read_to_string(entry.path().join("name")).map(|name| (name, entry))
@@ -58,10 +58,10 @@ impl Als {
             .next()
             .await
             .map(|sensor| Self { sensor, thresholds })
-            .ok_or_else(|| ErrorBox::from("No iio device found"))
+            .ok_or_else(|| anyhow!("No iio device found"))
     }
 
-    pub async fn get(&self) -> Result<String, ErrorBox> {
+    pub async fn get(&self) -> Result<String> {
         let raw = self.get_raw().await?;
         let profile = super::find_profile(raw, &self.thresholds);
 
@@ -69,7 +69,7 @@ impl Als {
         Ok(profile)
     }
 
-    async fn get_raw(&self) -> Result<u64, ErrorBox> {
+    async fn get_raw(&self) -> Result<u64> {
         Ok(match self.sensor {
             Illuminance {
                 ref value,
@@ -90,7 +90,7 @@ impl Als {
     }
 }
 
-async fn parse_illuminance_raw(path: PathBuf) -> Result<SensorType, ErrorBox> {
+async fn parse_illuminance_raw(path: PathBuf) -> Result<SensorType> {
     Ok(Illuminance {
         value: Mutex::new(
             open_file(&path, "in_illuminance_raw")
@@ -114,8 +114,8 @@ async fn parse_illuminance_raw(path: PathBuf) -> Result<SensorType, ErrorBox> {
     })
 }
 
-async fn parse_intensity_raw(path: PathBuf) -> Result<SensorType, ErrorBox> {
-    async fn try_open_and_read(path: &Path, name: &str) -> Result<f64, ErrorBox> {
+async fn parse_intensity_raw(path: PathBuf) -> Result<SensorType> {
+    async fn try_open_and_read(path: &Path, name: &str) -> Result<f64> {
         let mut f = open_file(path, name).await?;
         read(&mut f).await
     }
@@ -131,7 +131,7 @@ async fn parse_intensity_raw(path: PathBuf) -> Result<SensorType, ErrorBox> {
     })
 }
 
-async fn parse_illuminance_input(path: PathBuf) -> Result<SensorType, ErrorBox> {
+async fn parse_illuminance_input(path: PathBuf) -> Result<SensorType> {
     Ok(Illuminance {
         value: Mutex::new(
             open_file(&path, "in_illuminance_input")
@@ -143,7 +143,7 @@ async fn parse_illuminance_input(path: PathBuf) -> Result<SensorType, ErrorBox> 
     })
 }
 
-async fn parse_intensity_rgb(path: PathBuf) -> Result<SensorType, ErrorBox> {
+async fn parse_intensity_rgb(path: PathBuf) -> Result<SensorType> {
     Ok(Intensity {
         r: Mutex::new(open_file(&path, "in_intensity_red_raw").await?),
         g: Mutex::new(open_file(&path, "in_intensity_green_raw").await?),
@@ -151,6 +151,6 @@ async fn parse_intensity_rgb(path: PathBuf) -> Result<SensorType, ErrorBox> {
     })
 }
 
-async fn open_file(path: &Path, name: &str) -> Result<File, ErrorBox> {
-    File::open(path.join(name)).await.map_err(ErrorBox::from)
+async fn open_file(path: &Path, name: &str) -> Result<File> {
+    File::open(path.join(name)).await.map_err(Error::msg)
 }
