@@ -36,7 +36,7 @@ pub struct Capturer {
     output: Option<WlOutput>,
     output_global_id: Option<u32>,
     pending_frame: Option<Object>,
-    controller: Option<Box<dyn Controller>>,
+    controller: Option<Controller>,
     // linux-dmabuf-v1
     dmabuf: Option<ZwpLinuxDmabufV1>,
     wl_buffer: Option<WlBuffer>,
@@ -83,8 +83,8 @@ impl Capturer {
     }
 }
 
-impl super::Capturer for Capturer {
-    fn run(&mut self, output_name: &str, controller: Box<dyn Controller>) {
+impl Capturer {
+    pub fn run(&mut self, output_name: &str, controller: Controller) {
         let connection =
             Connection::connect_to_env().expect("Unable to connect to Wayland display");
         let display = connection.display();
@@ -392,7 +392,8 @@ impl Dispatch<ZwlrExportDmabufFrameV1, ()> for Capturer {
                     .luma_percent_from_external_fd(&state.pending_frame.take().unwrap())
                     .expect("Unable to compute luma percent");
 
-                state.controller.as_mut().unwrap().adjust(luma);
+                // TODO: replace with await
+                smol::block_on(state.controller.as_mut().unwrap().adjust(luma));
 
                 frame.destroy();
 
@@ -539,7 +540,8 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                     .luma_percent_from_internal_fd()
                     .expect("Unable to compute luma percent");
 
-                state.controller.as_mut().unwrap().adjust(luma);
+                // TODO: replace with await
+                smol::block_on(state.controller.as_mut().unwrap().adjust(luma));
 
                 frame.destroy();
 
@@ -547,7 +549,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for Capturer {
                 state.is_processing_frame = false;
             }
 
-            Event::Failed {} => {
+            Event::Failed => {
                 log::debug!("Frame copy failed");
                 frame.destroy();
 
@@ -702,7 +704,8 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, ()> for Capturer {
                     .luma_percent_from_internal_fd()
                     .expect("Unable to compute luma percent");
 
-                state.controller.as_mut().unwrap().adjust(luma);
+                // TODO: replace with await
+                smol::block_on(state.controller.as_mut().unwrap().adjust(luma));
 
                 frame.destroy();
 

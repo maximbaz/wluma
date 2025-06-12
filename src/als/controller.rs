@@ -1,37 +1,39 @@
+use smol::channel::Sender;
+use smol::Timer;
+
 use super::Als;
-use std::sync::mpsc::Sender;
-use std::thread;
 use std::time::Duration;
 
 const WAITING_SLEEP_MS: u64 = 100;
 
 pub struct Controller {
-    als: Box<dyn Als>,
+    als: Als,
     value_txs: Vec<Sender<String>>,
 }
 
 impl Controller {
-    pub fn new(als: Box<dyn Als>, value_txs: Vec<Sender<String>>) -> Self {
+    pub fn new(als: Als, value_txs: Vec<Sender<String>>) -> Self {
         Self { als, value_txs }
     }
 
-    pub fn run(&mut self) {
+    pub async fn run(&mut self) {
         loop {
-            self.step();
+            self.step().await;
         }
     }
 
-    fn step(&mut self) {
-        match self.als.get() {
+    async fn step(&mut self) {
+        match self.als.get().await {
             Ok(value) => {
-                self.value_txs.iter().for_each(|chan| {
-                    chan.send(value.clone())
-                        .expect("Unable to send new ALS value, channel is dead")
-                });
+                futures_util::future::try_join_all(
+                    self.value_txs.iter().map(|chan| chan.send(value.clone())),
+                )
+                .await
+                .expect("Unable to send new ALS value, channel is dead");
             }
             Err(err) => log::error!("Unable to get ALS value: {:?}", err),
         };
 
-        thread::sleep(Duration::from_millis(WAITING_SLEEP_MS));
+        Timer::after(Duration::from_millis(WAITING_SLEEP_MS)).await;
     }
 }

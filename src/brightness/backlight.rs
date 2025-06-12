@@ -1,10 +1,10 @@
 use crate::device_file::{read, write};
+use crate::ErrorBox;
 use dbus::channel::Sender;
 use dbus::{self, blocking::Connection, Message};
 use inotify::{Inotify, WatchMask};
-use std::error::Error;
+use smol::fs::{File, OpenOptions};
 use std::fs;
-use std::fs::File;
 use std::io::ErrorKind;
 use std::path::Path;
 
@@ -25,7 +25,7 @@ pub struct Backlight {
 }
 
 impl Backlight {
-    pub fn new(path: &str, min_brightness: u64) -> Result<Self, Box<dyn Error>> {
+    pub async fn new(path: &str, min_brightness: u64) -> Result<Self, ErrorBox> {
         let brightness_path = Path::new(path).join("brightness");
 
         let current_brightness = fs::read(&brightness_path)?;
@@ -33,15 +33,16 @@ impl Backlight {
         let has_write_permission = fs::write(&brightness_path, current_brightness).is_ok();
 
         let (file, dbus) = if has_write_permission {
-            let file = File::options()
+            let file = OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open(&brightness_path)?;
+                .open(&brightness_path)
+                .await?;
 
             log::debug!("Using direct write on {} to change brightness value", path);
             (file, None)
         } else {
-            let file = File::open(&brightness_path)?;
+            let file = File::open(&brightness_path).await?;
 
             let id = Path::new(path)
                 .file_name()
@@ -105,25 +106,23 @@ impl Backlight {
             pending_dbus_write: false,
         })
     }
-}
 
-impl super::Brightness for Backlight {
-    fn get(&mut self) -> Result<u64, Box<dyn Error>> {
-        let update = |this: &mut Self| {
-            let value = read(&mut this.file)? as u64;
+    pub async fn get(&mut self) -> Result<u64, ErrorBox> {
+        async fn update(this: &mut Backlight) -> Result<u64, ErrorBox> {
+            let value = read(&mut this.file).await? as u64;
             this.current = Some(value);
             Ok(value)
-        };
+        }
 
         let mut buffer = [0u8; 1024];
         match (self.inotify.read_events(&mut buffer), self.current) {
-            (_, None) => update(self),
+            (_, None) => update(self).await,
             (Ok(mut events), Some(cached)) => {
                 if self.pending_dbus_write || events.next().is_none() {
                     self.pending_dbus_write = false;
                     Ok(cached)
                 } else {
-                    update(self)
+                    update(self).await
                 }
             }
             (Err(err), Some(cached)) if err.kind() == ErrorKind::WouldBlock => Ok(cached),
@@ -131,11 +130,11 @@ impl super::Brightness for Backlight {
         }
     }
 
-    fn set(&mut self, value: u64) -> Result<u64, Box<dyn Error>> {
+    pub async fn set(&mut self, value: u64) -> Result<u64, ErrorBox> {
         let value = value.clamp(self.min_brightness, self.max_brightness);
 
         if self.has_write_permission {
-            write(&mut self.file, value as f64)?;
+            write(&mut self.file, value as f64).await?;
         } else if let Some(dbus) = &self.dbus {
             dbus.connection
                 .send(dbus.message.duplicate()?.append1(value as u32))

@@ -1,12 +1,14 @@
 use crate::device_file::read;
+use crate::ErrorBox;
+use futures_util::{FutureExt, StreamExt, TryFutureExt};
+use smol::fs::File;
+use smol::lock::Mutex;
 use std::collections::HashMap;
-use std::error::Error;
-use std::fs;
-use std::fs::File;
+use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use SensorType::*;
 
+#[allow(clippy::large_enum_variant)]
 enum SensorType {
     Illuminance {
         value: Mutex<File>,
@@ -26,111 +28,129 @@ pub struct Als {
 }
 
 impl Als {
-    pub fn new(base_path: &str, thresholds: HashMap<u64, String>) -> Result<Self, Box<dyn Error>> {
-        Path::new(base_path)
-            .read_dir()
-            .ok()
-            .and_then(|dir| {
-                dir.filter_map(|e| e.ok())
-                    .find(|e| {
-                        ["als", "acpi-als", "apds9960"].contains(
-                            &fs::read_to_string(e.path().join("name"))
-                                .unwrap_or_default()
-                                .trim(),
-                        )
-                    })
-                    .and_then(|e| {
-                        // TODO should probably start from the `parse_illuminance_input` in the next major version
-                        parse_illuminance_raw(e.path())
-                            .or_else(|_| parse_illuminance_input(e.path()))
-                            .or_else(|_| parse_intensity_raw(e.path()))
-                            .or_else(|_| parse_intensity_rgb(e.path()))
-                            .ok()
+    pub async fn new(base_path: &str, thresholds: HashMap<u64, String>) -> Result<Self, ErrorBox> {
+        smol::fs::read_dir(base_path)
+            .await
+            .map_err(|e| ErrorBox::from(format!("Can't enumerate iio devices: {e}")))?
+            .filter_map(|r| async { r.ok() })
+            .then(|entry| {
+                smol::fs::read_to_string(entry.path().join("name")).map(|name| (name, entry))
+            })
+            .filter_map(|(name, entry)| async {
+                ["als", "acpi-als", "apds9960"]
+                    .contains(&name.unwrap_or_default().trim())
+                    .then_some(entry)
+            })
+            .filter_map(|entry| async move {
+                // TODO should probably start from the `parse_illuminance_input` in the next major version
+                parse_illuminance_raw(entry.path())
+                    .or_else(|_| parse_illuminance_input(entry.path()))
+                    .or_else(|_| parse_intensity_raw(entry.path()))
+                    .or_else(|_| parse_intensity_rgb(entry.path()))
+                    .await
+                    .map(Some)
+                    .unwrap_or_else(|_| {
+                        log::error!("Failed to read sensor '{}'", entry.path().display());
+                        None
                     })
             })
+            .boxed()
+            .next()
+            .await
             .map(|sensor| Self { sensor, thresholds })
-            .ok_or_else(|| "No iio device found".into())
+            .ok_or_else(|| ErrorBox::from("No iio device found"))
     }
 
-    fn get_raw(&self) -> Result<u64, Box<dyn Error>> {
+    pub async fn get(&self) -> Result<String, ErrorBox> {
+        let raw = self.get_raw().await?;
+        let profile = super::find_profile(raw, &self.thresholds);
+
+        log::trace!("ALS (iio): {} ({})", profile, raw);
+        Ok(profile)
+    }
+
+    async fn get_raw(&self) -> Result<u64, ErrorBox> {
         Ok(match self.sensor {
             Illuminance {
                 ref value,
                 scale,
                 offset,
-            } => (read(&mut value.lock().unwrap())? + offset) * scale,
+            } => (read(value.lock().await.deref_mut()).await? + offset) * scale,
 
             Intensity {
                 ref r,
                 ref g,
                 ref b,
             } => {
-                -0.32466 * read(&mut r.lock().unwrap())?
-                    + 1.57837 * read(&mut g.lock().unwrap())?
-                    + -0.73191 * read(&mut b.lock().unwrap())?
+                -0.32466 * read(r.lock().await.deref_mut()).await?
+                    + 1.57837 * read(g.lock().await.deref_mut()).await?
+                    + -0.73191 * read(b.lock().await.deref_mut()).await?
             }
         } as u64)
     }
 }
 
-impl super::Als for Als {
-    fn get(&self) -> Result<String, Box<dyn Error>> {
-        let raw = self.get_raw()?;
-        let profile = super::find_profile(raw, &self.thresholds);
-
-        log::trace!("ALS (iio): {} ({})", profile, raw);
-        Ok(profile)
-    }
-}
-
-fn parse_illuminance_raw(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
+async fn parse_illuminance_raw(path: PathBuf) -> Result<SensorType, ErrorBox> {
     Ok(Illuminance {
         value: Mutex::new(
             open_file(&path, "in_illuminance_raw")
-                .or_else(|_| open_file(&path, "in_illuminance0_raw"))?,
+                .or_else(|_| open_file(&path, "in_illuminance0_raw"))
+                .await?,
         ),
-        scale: open_file(&path, "in_illuminance_scale")
-            .or_else(|_| open_file(&path, "in_illuminance0_scale"))
-            .and_then(|mut f| read(&mut f))
-            .unwrap_or(1_f64),
-        offset: open_file(&path, "in_illuminance_offset")
-            .or_else(|_| open_file(&path, "in_illuminance0_offset"))
-            .and_then(|mut f| read(&mut f))
-            .unwrap_or(0_f64),
+        scale: {
+            open_file(&path, "in_illuminance_scale")
+                .or_else(|_| open_file(&path, "in_illuminance0_scale"))
+                .and_then(move |mut f| async move { read(&mut f).await })
+                .await
+                .unwrap_or(1_f64)
+        },
+        offset: {
+            open_file(&path, "in_illuminance_offset")
+                .or_else(|_| open_file(&path, "in_illuminance0_offset"))
+                .and_then(move |mut f| async move { read(&mut f).await })
+                .await
+                .unwrap_or(0_f64)
+        },
     })
 }
 
-fn parse_intensity_raw(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
+async fn parse_intensity_raw(path: PathBuf) -> Result<SensorType, ErrorBox> {
+    async fn try_open_and_read(path: &Path, name: &str) -> Result<f64, ErrorBox> {
+        let mut f = open_file(path, name).await?;
+        read(&mut f).await
+    }
+
     Ok(Illuminance {
-        value: Mutex::new(open_file(&path, "in_intensity_both_raw")?),
-        scale: open_file(&path, "in_intensity_scale")
-            .and_then(|mut f| read(&mut f))
+        value: Mutex::new(open_file(&path, "in_intensity_both_raw").await?),
+        scale: try_open_and_read(&path, "in_intensity_scale")
+            .await
             .unwrap_or(1_f64),
-        offset: open_file(&path, "in_intensity_offset")
-            .and_then(|mut f| read(&mut f))
+        offset: try_open_and_read(&path, "in_intensity_offset")
+            .await
             .unwrap_or(0_f64),
     })
 }
 
-fn parse_illuminance_input(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
+async fn parse_illuminance_input(path: PathBuf) -> Result<SensorType, ErrorBox> {
     Ok(Illuminance {
         value: Mutex::new(
             open_file(&path, "in_illuminance_input")
-                .or_else(|_| open_file(&path, "in_illuminance0_input"))?,
+                .or_else(|_| open_file(&path, "in_illuminance0_input"))
+                .await?,
         ),
         scale: 1_f64,
         offset: 0_f64,
     })
 }
 
-fn parse_intensity_rgb(path: PathBuf) -> Result<SensorType, Box<dyn Error>> {
+async fn parse_intensity_rgb(path: PathBuf) -> Result<SensorType, ErrorBox> {
     Ok(Intensity {
-        r: Mutex::new(open_file(&path, "in_intensity_red_raw")?),
-        g: Mutex::new(open_file(&path, "in_intensity_green_raw")?),
-        b: Mutex::new(open_file(&path, "in_intensity_blue_raw")?),
+        r: Mutex::new(open_file(&path, "in_intensity_red_raw").await?),
+        g: Mutex::new(open_file(&path, "in_intensity_green_raw").await?),
+        b: Mutex::new(open_file(&path, "in_intensity_blue_raw").await?),
     })
 }
 
-fn open_file(path: &Path, name: &str) -> Result<File, Box<dyn Error>> {
-    File::open(path.join(name)).map_err(Box::<dyn Error>::from)
+async fn open_file(path: &Path, name: &str) -> Result<File, ErrorBox> {
+    File::open(path.join(name)).await.map_err(ErrorBox::from)
 }

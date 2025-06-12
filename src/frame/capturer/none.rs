@@ -1,13 +1,15 @@
-use std::{thread, time::Duration};
+use std::time::Duration;
+
+use smol::Timer;
 
 #[derive(Default)]
 pub struct Capturer {}
 
-impl super::Capturer for Capturer {
-    fn run(&mut self, _output_name: &str, mut controller: Box<dyn crate::predictor::Controller>) {
+impl Capturer {
+    pub async fn run(&mut self, _output_name: &str, mut controller: crate::predictor::Controller) {
         loop {
-            controller.adjust(0);
-            thread::sleep(Duration::from_millis(200));
+            controller.adjust(0).await;
+            Timer::after(Duration::from_millis(200)).await;
         }
     }
 }

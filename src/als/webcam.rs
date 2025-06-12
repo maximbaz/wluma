@@ -1,9 +1,10 @@
+use crate::channel_ext::ReceiverExt;
 use crate::frame::compute_perceived_lightness_percent;
+use crate::ErrorBox;
 use itertools::Itertools;
-use std::cell::RefCell;
+use smol::channel::{Receiver, Sender};
+use smol::lock::Mutex;
 use std::collections::HashMap;
-use std::error::Error;
-use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 use v4l::buffer::Type;
@@ -36,14 +37,14 @@ impl Webcam {
             let lux = compute_perceived_lightness_percent(&rgbs, false, pixels) as u64;
 
             self.webcam_tx
-                .send(lux)
+                .send_blocking(lux) // TODO: async
                 .expect("Unable to send new webcam lux value, channel is dead");
         };
 
         thread::sleep(Duration::from_millis(WAITING_SLEEP_MS));
     }
 
-    fn frame(&mut self) -> Result<(Vec<u8>, usize), Box<dyn Error>> {
+    fn frame(&mut self) -> Result<(Vec<u8>, usize), ErrorBox> {
         let (device, pixels) = Self::setup(self.video)?;
         let mut stream = Stream::new(&device, Type::VideoCapture)?;
         let (rgbs, _) = stream.next()?;
@@ -51,7 +52,7 @@ impl Webcam {
         Ok((rgbs.to_vec(), pixels))
     }
 
-    fn setup(video: usize) -> Result<(Device, usize), Box<dyn Error>> {
+    fn setup(video: usize) -> Result<(Device, usize), ErrorBox> {
         let device = Device::new(video)?;
         let mut format = device.format()?;
         format.fourcc = FourCC::new(b"RGB3");
@@ -79,7 +80,7 @@ impl Webcam {
 pub struct Als {
     webcam_rx: Receiver<u64>,
     thresholds: HashMap<u64, String>,
-    lux: RefCell<u64>,
+    lux: Mutex<u64>,
 }
 
 impl Als {
@@ -87,83 +88,85 @@ impl Als {
         Self {
             webcam_rx,
             thresholds,
-            lux: RefCell::new(DEFAULT_LUX),
+            lux: Mutex::new(DEFAULT_LUX),
         }
     }
 
-    fn get_raw(&self) -> Result<u64, Box<dyn Error>> {
-        let new_value = self
-            .webcam_rx
-            .try_iter()
-            .last()
-            .unwrap_or(*self.lux.borrow());
-        *self.lux.borrow_mut() = new_value;
-        Ok(new_value)
-    }
-}
-
-impl super::Als for Als {
-    fn get(&self) -> Result<String, Box<dyn Error>> {
-        let raw = self.get_raw()?;
+    pub async fn get(&self) -> Result<String, ErrorBox> {
+        let raw = self.get_raw().await?;
         let profile = super::find_profile(raw, &self.thresholds);
 
         log::trace!("ALS (webcam): {} ({})", profile, raw);
         Ok(profile)
     }
+
+    async fn get_raw(&self) -> Result<u64, ErrorBox> {
+        let new_value = self
+            .webcam_rx
+            .recv_maybe_last()
+            .await
+            .expect("webcam_rx closed unexpectedly")
+            .unwrap_or(*self.lux.lock_blocking());
+        *self.lux.lock_blocking() = new_value;
+        Ok(new_value)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::sync::mpsc;
+    use macro_rules_attribute::apply;
+    use smol::channel;
+    use smol_macros::test;
 
-    fn setup() -> (Als, Sender<u64>) {
-        let (webcam_tx, webcam_rx) = mpsc::channel();
+    use super::*;
+
+    async fn setup() -> (Als, Sender<u64>) {
+        let (webcam_tx, webcam_rx) = channel::bounded(128);
         let als = Als::new(webcam_rx, HashMap::default());
         (als, webcam_tx)
     }
 
-    #[test]
-    fn test_get_raw_returns_default_value_when_no_data_from_webcam() -> Result<(), Box<dyn Error>> {
-        let (als, _) = setup();
+    #[apply(test!)]
+    async fn test_get_raw_returns_default_value_when_no_data_from_webcam() -> Result<(), ErrorBox> {
+        let (als, _) = setup().await;
 
-        assert_eq!(DEFAULT_LUX, als.get_raw()?);
+        assert_eq!(DEFAULT_LUX, als.get_raw().await?);
         Ok(())
     }
 
-    #[test]
-    fn test_get_raw_returns_value_from_webcam() -> Result<(), Box<dyn Error>> {
-        let (als, webcam_tx) = setup();
+    #[apply(test!)]
+    async fn test_get_raw_returns_value_from_webcam() -> Result<(), ErrorBox> {
+        let (als, webcam_tx) = setup().await;
 
-        webcam_tx.send(42)?;
+        webcam_tx.send(42).await?;
 
-        assert_eq!(42, als.get_raw()?);
+        assert_eq!(42, als.get_raw().await?);
         Ok(())
     }
 
-    #[test]
-    fn test_get_raw_returns_most_recent_value_from_webcam() -> Result<(), Box<dyn Error>> {
-        let (als, webcam_tx) = setup();
+    #[apply(test!)]
+    async fn test_get_raw_returns_most_recent_value_from_webcam() -> Result<(), ErrorBox> {
+        let (als, webcam_tx) = setup().await;
 
-        webcam_tx.send(42)?;
-        webcam_tx.send(43)?;
-        webcam_tx.send(44)?;
+        webcam_tx.send(42).await?;
+        webcam_tx.send(43).await?;
+        webcam_tx.send(44).await?;
 
-        assert_eq!(44, als.get_raw()?);
+        assert_eq!(44, als.get_raw().await?);
         Ok(())
     }
 
-    #[test]
-    fn test_get_raw_returns_last_known_value_from_webcam_when_no_new_data(
-    ) -> Result<(), Box<dyn Error>> {
-        let (als, webcam_tx) = setup();
+    #[apply(test!)]
+    async fn test_get_raw_returns_last_known_value_from_webcam_when_no_new_data(
+    ) -> Result<(), ErrorBox> {
+        let (als, webcam_tx) = setup().await;
 
-        webcam_tx.send(42)?;
-        webcam_tx.send(43)?;
+        webcam_tx.send(42).await?;
+        webcam_tx.send(43).await?;
 
-        assert_eq!(43, als.get_raw()?);
-        assert_eq!(43, als.get_raw()?);
-        assert_eq!(43, als.get_raw()?);
+        assert_eq!(43, als.get_raw().await?);
+        assert_eq!(43, als.get_raw().await?);
+        assert_eq!(43, als.get_raw().await?);
         Ok(())
     }
 }

@@ -1,13 +1,8 @@
-use super::{
-    Controller as _, INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET,
-};
-use crate::predictor::data::Entry;
+use super::{INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET};
+use crate::{channel_ext::ReceiverExt, predictor::data::Entry};
 use itertools::Itertools;
-use std::{
-    collections::HashMap,
-    sync::mpsc::{Receiver, Sender},
-    time::Duration,
-};
+use smol::channel::{Receiver, Sender};
+use std::{collections::HashMap, time::Duration};
 
 pub struct Controller {
     prediction_tx: Sender<u64>,
@@ -21,40 +16,6 @@ pub struct Controller {
     next_als: Option<String>,
     next_als_cooldown: u8,
     output_name: String,
-}
-
-impl super::Controller for Controller {
-    fn adjust(&mut self, luma: u8) {
-        if self.last_als.is_none() {
-            // ALS controller is expected to send the initial value on this channel asap
-            self.last_als = self
-                .als_rx
-                .recv_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
-                .map_or_else(
-                    |e| panic!("Did not receive initial ALS value in time: {e:?}"),
-                    Some,
-                );
-        }
-
-        match self.als_rx.try_iter().last() {
-            new_als @ Some(_) if self.next_als != new_als => {
-                self.next_als = new_als;
-                self.next_als_cooldown = NEXT_ALS_COOLDOWN_RESET;
-            }
-            _ if self.next_als_cooldown > 1 => {
-                self.next_als_cooldown -= 1;
-            }
-            _ if self.next_als_cooldown == 1 => {
-                self.next_als_cooldown = 0;
-                self.last_als = self.next_als.take();
-            }
-            _ => {}
-        }
-
-        let lux = &self.last_als.clone().expect("ALS value must be known");
-
-        self.process(lux, luma);
-    }
 }
 
 impl Controller {
@@ -80,13 +41,50 @@ impl Controller {
         }
     }
 
-    fn process(&mut self, lux: &str, luma: u8) {
+    pub async fn adjust(&mut self, luma: u8) {
+        if self.last_als.is_none() {
+            // ALS controller is expected to send the initial value on this channel asap
+            self.last_als = Some(
+                self.als_rx
+                    .recv_or_panic_after_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
+                    .await
+                    .expect("als_rx closed unexpectedly"),
+            );
+        }
+
+        match self
+            .als_rx
+            .recv_maybe_last()
+            .await
+            .expect("als_rx closed unexpectedly")
+        {
+            new_als @ Some(_) if self.next_als != new_als => {
+                self.next_als = new_als;
+                self.next_als_cooldown = NEXT_ALS_COOLDOWN_RESET;
+            }
+            _ if self.next_als_cooldown > 1 => {
+                self.next_als_cooldown -= 1;
+            }
+            _ if self.next_als_cooldown == 1 => {
+                self.next_als_cooldown = 0;
+                self.last_als = self.next_als.take();
+            }
+            _ => {}
+        }
+
+        let lux = &self.last_als.clone().expect("ALS value must be known");
+
+        self.process(lux, luma).await;
+    }
+
+    async fn process(&mut self, lux: &str, luma: u8) {
         if self.last_brightness.is_none() {
             // Brightness controller is expected to send the initial value on this channel asap
             self.last_brightness = self
                 .user_rx
-                .try_iter()
-                .last()
+                .recv_maybe_last()
+                .await
+                .expect("user_rx closed unexpectedly")
                 .or_else(|| panic!("Did not receive initial brightness value"));
 
             self.process_brightness_change(self.last_brightness.unwrap(), lux, luma);
@@ -94,8 +92,9 @@ impl Controller {
 
         let current_brightness = self
             .user_rx
-            .try_iter()
-            .last()
+            .recv_maybe_last()
+            .await
+            .expect("user_rx closed unexpectedly")
             .or(self.last_brightness)
             .expect("Current brightness value must be known by now");
 
@@ -105,11 +104,11 @@ impl Controller {
         } else if self.pending_cooldown > 0 {
             self.pending_cooldown -= 1;
         } else {
-            self.predict(current_brightness, lux, luma);
+            self.predict(current_brightness, lux, luma).await;
         }
     }
 
-    fn predict(&mut self, current_brightness: u64, lux: &str, luma: u8) {
+    async fn predict(&mut self, current_brightness: u64, lux: &str, luma: u8) {
         let brightness_reduction = self.get_brightness_reduction(current_brightness, lux, luma);
 
         let prediction = self
@@ -123,6 +122,7 @@ impl Controller {
         );
         self.prediction_tx
             .send(prediction)
+            .await
             .expect("Unable to send predicted brightness value, channel is dead");
     }
 
@@ -139,7 +139,7 @@ impl Controller {
             })
             .collect_vec();
 
-        let brightness_reduction = self.interpolate(&entries, lux, luma);
+        let brightness_reduction = super::interpolate(&entries, lux, luma);
 
         (current_brightness as f64 * brightness_reduction.unwrap_or(0) as f64 / 100.) as u64
     }
@@ -153,20 +153,23 @@ impl Controller {
 
 #[cfg(test)]
 mod tests {
+    use crate::ErrorBox;
+
     use super::*;
+    use macro_rules_attribute::apply;
+    use smol::channel;
+    use smol_macros::test;
     use std::collections::HashMap;
-    use std::error::Error;
-    use std::sync::mpsc;
 
     const ALS_UNKNOWN: &str = "not-configured-threshold";
     const ALS_DIM: &str = "dim";
 
-    fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>), Box<dyn Error>> {
-        let (als_tx, als_rx) = mpsc::channel();
-        let (user_tx, user_rx) = mpsc::channel();
-        let (prediction_tx, prediction_rx) = mpsc::channel();
-        als_tx.send(ALS_DIM.to_string())?;
-        user_tx.send(0)?;
+    async fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>), ErrorBox> {
+        let (als_tx, als_rx) = channel::bounded(128);
+        let (user_tx, user_rx) = channel::bounded(128);
+        let (prediction_tx, prediction_rx) = channel::bounded(128);
+        als_tx.send(ALS_DIM.to_string()).await?;
+        user_tx.send(0).await?;
 
         let thresholds: HashMap<String, HashMap<u8, u64>> = [(
             ALS_DIM.to_string(),
@@ -179,9 +182,9 @@ mod tests {
         Ok((controller, user_tx, prediction_rx))
     }
 
-    #[test]
-    fn test_get_brightness_reduction() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, _) = setup()?;
+    #[apply(test!)]
+    async fn test_get_brightness_reduction() -> Result<(), ErrorBox> {
+        let (mut controller, _, _) = setup().await?;
 
         assert_eq!(controller.get_brightness_reduction(100, ALS_DIM, 0), 0);
         assert_eq!(controller.get_brightness_reduction(100, ALS_DIM, 10), 10);
@@ -198,10 +201,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_no_brightness_reduction_for_not_configured_als_threshold() -> Result<(), Box<dyn Error>>
+    #[apply(test!)]
+    async fn test_no_brightness_reduction_for_not_configured_als_threshold() -> Result<(), ErrorBox>
     {
-        let (mut controller, _, _) = setup()?;
+        let (mut controller, _, _) = setup().await?;
 
         assert_eq!(controller.get_brightness_reduction(100, ALS_UNKNOWN, 0), 0);
         assert_eq!(controller.get_brightness_reduction(100, ALS_UNKNOWN, 10), 0);
@@ -221,46 +224,46 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_change_in_luma() -> Result<(), Box<dyn Error>> {
-        let (mut controller, user_tx, prediction_rx) = setup()?;
+    #[apply(test!)]
+    async fn test_change_in_luma() -> Result<(), ErrorBox> {
+        let (mut controller, user_tx, prediction_rx) = setup().await?;
 
-        user_tx.send(100)?;
+        user_tx.send(100).await?;
 
-        controller.process(ALS_DIM, 50);
-        assert_eq!(prediction_rx.recv()?, 100);
+        controller.process(ALS_DIM, 50).await;
+        assert_eq!(prediction_rx.recv().await?, 100);
 
-        controller.process(ALS_DIM, 10);
-        assert_eq!(prediction_rx.recv()?, 120);
+        controller.process(ALS_DIM, 10).await;
+        assert_eq!(prediction_rx.recv().await?, 120);
 
-        controller.process(ALS_DIM, 80);
-        assert_eq!(prediction_rx.recv()?, 89);
+        controller.process(ALS_DIM, 80).await;
+        assert_eq!(prediction_rx.recv().await?, 89);
 
         Ok(())
     }
 
-    #[test]
-    fn test_change_in_brightness_by_user() -> Result<(), Box<dyn Error>> {
-        let (mut controller, user_tx, prediction_rx) = setup()?;
+    #[apply(test!)]
+    async fn test_change_in_brightness_by_user() -> Result<(), ErrorBox> {
+        let (mut controller, user_tx, prediction_rx) = setup().await?;
 
         // Initial brightness is used to predict right away
-        user_tx.send(100)?;
-        controller.process(ALS_DIM, 50);
-        assert_eq!(prediction_rx.recv()?, 100);
+        user_tx.send(100).await?;
+        controller.process(ALS_DIM, 50).await;
+        assert_eq!(prediction_rx.recv().await?, 100);
 
         // Consequent user change causes prediction only after cooldown
-        user_tx.send(123)?;
+        user_tx.send(123).await?;
         for i in 0..=PENDING_COOLDOWN_RESET {
             // User doesn't change brightness anymore, so even if lux or luma change, we are in cooldown period
-            controller.process(ALS_DIM, i);
+            controller.process(ALS_DIM, i).await;
             assert_eq!(PENDING_COOLDOWN_RESET - i, controller.pending_cooldown);
-            assert!(prediction_rx.try_recv().is_err());
+            assert!(prediction_rx.is_empty());
         }
 
         // One final call will generate the actual prediction
-        controller.process(ALS_DIM, 50);
+        controller.process(ALS_DIM, 50).await;
         assert_eq!(0, controller.pending_cooldown);
-        assert_eq!(87, prediction_rx.recv()?);
+        assert_eq!(87, prediction_rx.recv().await?);
 
         Ok(())
     }

@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::error::Error;
 use std::fs;
 mod app;
 mod file;
 pub use app::*;
 
-pub fn load() -> Result<app::Config, Box<dyn Error>> {
+use crate::ErrorBox;
+
+pub fn load() -> Result<app::Config, ErrorBox> {
     validate(parse()?)
 }
 
@@ -114,7 +115,7 @@ fn parse() -> Result<app::Config, toml::de::Error> {
     })
 }
 
-fn validate(config: app::Config) -> Result<app::Config, Box<dyn Error>> {
+fn validate(config: app::Config) -> Result<app::Config, ErrorBox> {
     let names = config
         .output
         .iter()

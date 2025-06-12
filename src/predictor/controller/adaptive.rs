@@ -1,8 +1,10 @@
-use super::{
-    Controller as _, INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET,
+use smol::channel::{Receiver, Sender};
+
+use super::{INITIAL_TIMEOUT_SECS, NEXT_ALS_COOLDOWN_RESET, PENDING_COOLDOWN_RESET};
+use crate::{
+    channel_ext::ReceiverExt,
+    predictor::data::{Data, Entry},
 };
-use crate::predictor::data::{Data, Entry};
-use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 pub struct Controller {
@@ -18,54 +20,6 @@ pub struct Controller {
     next_als: Option<String>,
     next_als_cooldown: u8,
     output_name: String,
-}
-
-impl super::Controller for Controller {
-    fn adjust(&mut self, luma: u8) {
-        if self.last_als.is_none() {
-            // ALS controller is expected to send the initial value on this channel asap
-            self.last_als = self
-                .als_rx
-                .recv_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
-                .map_or_else(
-                    |e| panic!("Did not receive initial ALS value in time: {e:?}"),
-                    Some,
-                );
-
-            // Brightness controller is expected to send the initial value on this channel asap
-            let initial_brightness = self
-                .user_rx
-                .recv_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
-                .map_or_else(
-                    |e| panic!("Did not receive initial brightness value in time: {e:?}"),
-                    Some,
-                );
-
-            // If there are no learned entries yet, we will use this as the first data point,
-            // assuming that user is happy with the current brightness settings
-            if self.data.entries.is_empty() {
-                self.initial_brightness = initial_brightness;
-            };
-        }
-
-        match self.als_rx.try_iter().last() {
-            new_als @ Some(_) if self.next_als != new_als => {
-                self.next_als = new_als;
-                self.next_als_cooldown = NEXT_ALS_COOLDOWN_RESET;
-            }
-            _ if self.next_als_cooldown > 1 => {
-                self.next_als_cooldown -= 1;
-            }
-            _ if self.next_als_cooldown == 1 => {
-                self.next_als_cooldown = 0;
-                self.last_als = self.next_als.take();
-            }
-            _ => {}
-        }
-
-        let lux = &self.last_als.clone().expect("ALS value must be known");
-        self.process(lux, luma);
-    }
 }
 
 impl Controller {
@@ -98,9 +52,62 @@ impl Controller {
         }
     }
 
-    fn process(&mut self, lux: &str, luma: u8) {
+    pub async fn adjust(&mut self, luma: u8) {
+        if self.last_als.is_none() {
+            // ALS controller is expected to send the initial value on this channel asap
+            self.last_als = Some(
+                self.als_rx
+                    .recv_or_panic_after_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
+                    .await
+                    .expect("als_rx closed unexpectedly"),
+            );
+
+            // Brightness controller is expected to send the initial value on this channel asap
+            let initial_brightness = self
+                .user_rx
+                .recv_or_panic_after_timeout(Duration::from_secs(INITIAL_TIMEOUT_SECS))
+                .await
+                .expect("user_rx closed unexpectedly");
+
+            // If there are no learned entries yet, we will use this as the first data point,
+            // assuming that user is happy with the current brightness settings
+            if self.data.entries.is_empty() {
+                self.initial_brightness = Some(initial_brightness);
+            };
+        }
+
+        match self
+            .als_rx
+            .recv_maybe_last()
+            .await
+            .expect("als_rx closed unexpectedly")
+        {
+            new_als @ Some(_) if self.next_als != new_als => {
+                self.next_als = new_als;
+                self.next_als_cooldown = NEXT_ALS_COOLDOWN_RESET;
+            }
+            _ if self.next_als_cooldown > 1 => {
+                self.next_als_cooldown -= 1;
+            }
+            _ if self.next_als_cooldown == 1 => {
+                self.next_als_cooldown = 0;
+                self.last_als = self.next_als.take();
+            }
+            _ => {}
+        }
+
+        let lux = &self.last_als.clone().expect("ALS value must be known");
+        self.process(lux, luma).await;
+    }
+
+    async fn process(&mut self, lux: &str, luma: u8) {
         let initial_brightness = self.initial_brightness.take();
-        let user_changed_brightness = self.user_rx.try_iter().last().or(initial_brightness);
+        let user_changed_brightness = self
+            .user_rx
+            .recv_maybe_last()
+            .await
+            .expect("user_rx closed unexpectedly")
+            .or(initial_brightness);
 
         if let Some(brightness) = user_changed_brightness {
             self.pending = match &self.pending {
@@ -117,7 +124,7 @@ impl Controller {
         } else if self.pending.is_some() {
             self.learn();
         } else {
-            self.predict(lux, luma);
+            self.predict(lux, luma).await;
         }
     }
 
@@ -150,14 +157,15 @@ impl Controller {
         }
     }
 
-    fn predict(&mut self, lux: &str, luma: u8) {
-        if let Some(prediction) = self.interpolate(&self.data.entries, lux, luma) {
+    async fn predict(&mut self, lux: &str, luma: u8) {
+        if let Some(prediction) = super::interpolate(&self.data.entries, lux, luma) {
             log::trace!(
                 "[{}] Prediction: {prediction} (lux: {lux}, luma: {luma})",
                 self.output_name
             );
             self.prediction_tx
                 .send(prediction)
+                .await
                 .expect("Unable to send predicted brightness value, channel is dead");
         }
     }
@@ -165,33 +173,36 @@ impl Controller {
 
 #[cfg(test)]
 mod tests {
+    use crate::ErrorBox;
+
     use super::*;
     use itertools::{iproduct, Itertools};
+    use macro_rules_attribute::apply;
+    use smol::channel;
+    use smol_macros::test;
     use std::collections::HashSet;
-    use std::error::Error;
-    use std::sync::mpsc;
 
     const ALS_DARK: &str = "dark";
     const ALS_DIM: &str = "dim";
     const ALS_BRIGHT: &str = "bright";
 
-    fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>), Box<dyn Error>> {
-        let (als_tx, als_rx) = mpsc::channel();
-        let (user_tx, user_rx) = mpsc::channel();
-        let (prediction_tx, prediction_rx) = mpsc::channel();
-        als_tx.send(ALS_BRIGHT.to_string())?;
-        user_tx.send(0)?;
+    async fn setup() -> Result<(Controller, Sender<u64>, Receiver<u64>), ErrorBox> {
+        let (als_tx, als_rx) = channel::bounded(128);
+        let (user_tx, user_rx) = channel::bounded(128);
+        let (prediction_tx, prediction_rx) = channel::bounded(128);
+        als_tx.send(ALS_BRIGHT.to_string()).await?;
+        user_tx.send(0).await?;
         let controller = Controller::new(prediction_tx, user_rx, als_rx, false, "Dell 1");
         Ok((controller, user_tx, prediction_rx))
     }
 
-    #[test]
-    fn test_process_first_user_change() -> Result<(), Box<dyn Error>> {
-        let (mut controller, user_tx, _) = setup()?;
+    #[apply(test!)]
+    async fn test_process_first_user_change() -> Result<(), ErrorBox> {
+        let (mut controller, user_tx, _) = setup().await?;
 
         // User changes brightness to value 33 for a given lux and luma
-        user_tx.send(33)?;
-        controller.process(ALS_DIM, 66);
+        user_tx.send(33).await?;
+        controller.process(ALS_DIM, 66).await;
 
         assert_eq!(Some(Entry::new(ALS_DIM, 66, 33)), controller.pending);
         assert_eq!(PENDING_COOLDOWN_RESET, controller.pending_cooldown);
@@ -199,20 +210,20 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_process_several_continuous_user_changes() -> Result<(), Box<dyn Error>> {
-        let (mut controller, user_tx, _) = setup()?;
+    #[apply(test!)]
+    async fn test_process_several_continuous_user_changes() -> Result<(), ErrorBox> {
+        let (mut controller, user_tx, _) = setup().await?;
 
         // User initiates brightness change for a given lux and luma to value 33...
-        user_tx.send(33)?;
-        controller.process(ALS_DIM, 66);
+        user_tx.send(33).await?;
+        controller.process(ALS_DIM, 66).await;
         // then quickly continues increasing it to 34 (while lux and luma might already be different)...
-        user_tx.send(34)?;
-        controller.process(ALS_BRIGHT, 36);
+        user_tx.send(34).await?;
+        controller.process(ALS_BRIGHT, 36).await;
         // and even faster to 36 (which is the indended brightness value they wish to learn for the initial lux and luma)
-        user_tx.send(35)?;
-        user_tx.send(36)?;
-        controller.process(ALS_DARK, 16);
+        user_tx.send(35).await?;
+        user_tx.send(36).await?;
+        controller.process(ALS_DARK, 16).await;
 
         assert_eq!(Some(Entry::new(ALS_DIM, 66, 36)), controller.pending);
         assert_eq!(PENDING_COOLDOWN_RESET, controller.pending_cooldown);
@@ -220,27 +231,27 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_process_learns_user_change_after_cooldown() -> Result<(), Box<dyn Error>> {
-        let (mut controller, user_tx, _) = setup()?;
+    #[apply(test!)]
+    async fn test_process_learns_user_change_after_cooldown() -> Result<(), ErrorBox> {
+        let (mut controller, user_tx, _) = setup().await?;
 
         // User changes brightness to a desired value
-        user_tx.send(33)?;
-        controller.process(ALS_DIM, 66);
-        user_tx.send(33)?;
-        controller.process(ALS_BRIGHT, 36);
-        user_tx.send(35)?;
-        controller.process(ALS_DARK, 16);
+        user_tx.send(33).await?;
+        controller.process(ALS_DIM, 66).await;
+        user_tx.send(33).await?;
+        controller.process(ALS_BRIGHT, 36).await;
+        user_tx.send(35).await?;
+        controller.process(ALS_DARK, 16).await;
 
         for i in 1..=PENDING_COOLDOWN_RESET {
             // User doesn't change brightness anymore, so even if lux or luma change, we are in cooldown period
-            controller.process(ALS_BRIGHT, i);
+            controller.process(ALS_BRIGHT, i).await;
             assert_eq!(PENDING_COOLDOWN_RESET - i, controller.pending_cooldown);
             assert_eq!(Some(Entry::new(ALS_DIM, 66, 35)), controller.pending);
         }
 
         // One final process will trigger the learning
-        controller.process(ALS_DARK, 17);
+        controller.process(ALS_DARK, 17).await;
 
         assert_eq!(None, controller.pending);
         assert_eq!(0, controller.pending_cooldown);
@@ -259,13 +270,13 @@ mod tests {
     //
     // *UPDATE*: experimenting with not changing other envs
 
-    #[test]
-    fn test_learn_data_cleanup() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, _) = setup()?;
+    #[apply(test!)]
+    async fn test_learn_data_cleanup() -> Result<(), ErrorBox> {
+        let (mut controller, _, _) = setup().await?;
 
         let pending = Entry::new(ALS_DIM, 20, 30);
 
-        let all_als = vec![ALS_DARK, ALS_DIM, ALS_BRIGHT];
+        let all_als = [ALS_DARK, ALS_DIM, ALS_BRIGHT];
         let all_combinations: HashSet<_> = iproduct!(-1i32..=1, -1i32..=1, -1i32..=1)
             .map(|(i, j, k)| Entry::new(all_als[(1 + i) as usize], (20 + j) as u8, (30 + k) as u64))
             .collect();
@@ -311,60 +322,60 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_predict_no_data_points() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup()?;
+    #[apply(test!)]
+    async fn test_predict_no_data_points() -> Result<(), ErrorBox> {
+        let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![];
 
         // predict() should not be called with no data, but just in case confirm we don't panic
-        controller.predict(ALS_DIM, 20);
+        controller.predict(ALS_DIM, 20).await;
 
-        assert_eq!(true, prediction_rx.try_recv().is_err());
+        assert!(prediction_rx.try_recv().is_err());
 
         Ok(())
     }
 
-    #[test]
-    fn test_predict_no_data_points_for_current_als_profile() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup()?;
+    #[apply(test!)]
+    async fn test_predict_no_data_points_for_current_als_profile() -> Result<(), ErrorBox> {
+        let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![
             Entry::new(ALS_DARK, 50, 100),
             Entry::new(ALS_BRIGHT, 60, 100),
         ];
 
         // predict() should not be called with no data, but just in case confirm we don't panic
-        controller.predict(ALS_DIM, 20);
+        controller.predict(ALS_DIM, 20).await;
 
-        assert_eq!(true, prediction_rx.try_recv().is_err());
+        assert!(prediction_rx.try_recv().is_err());
 
         Ok(())
     }
 
-    #[test]
-    fn test_predict_one_data_point() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup()?;
+    #[apply(test!)]
+    async fn test_predict_one_data_point() -> Result<(), ErrorBox> {
+        let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![Entry::new(ALS_DIM, 10, 15)];
 
-        controller.predict(ALS_DIM, 20);
+        controller.predict(ALS_DIM, 20).await;
 
         assert_eq!(15, prediction_rx.try_recv()?);
         Ok(())
     }
 
-    #[test]
-    fn test_predict_known_conditions() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup()?;
+    #[apply(test!)]
+    async fn test_predict_known_conditions() -> Result<(), ErrorBox> {
+        let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![Entry::new(ALS_DIM, 10, 15), Entry::new(ALS_DIM, 20, 30)];
 
-        controller.predict(ALS_DIM, 20);
+        controller.predict(ALS_DIM, 20).await;
 
         assert_eq!(30, prediction_rx.try_recv()?);
         Ok(())
     }
 
-    #[test]
-    fn test_predict_approximate() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup()?;
+    #[apply(test!)]
+    async fn test_predict_approximate() -> Result<(), ErrorBox> {
+        let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![
             Entry::new(ALS_DIM, 10, 15),
             Entry::new(ALS_DIM, 20, 30),
@@ -375,15 +386,15 @@ mod tests {
         // dist1 = sqrt((x1 - x2)^2 + (y1 - y2)^2)
         // weight1 = (1/dist1) / (1/dist1 + 1/dist2 + 1/dist3)
         // prediction = weight1*brightness1 + weight2*brightness2 + weight3*brightness
-        controller.predict(ALS_DIM, 50);
+        controller.predict(ALS_DIM, 50).await;
 
         assert_eq!(43, prediction_rx.try_recv()?);
         Ok(())
     }
 
-    #[test]
-    fn test_predict_only_uses_data_for_current_als_profile() -> Result<(), Box<dyn Error>> {
-        let (mut controller, _, prediction_rx) = setup()?;
+    #[apply(test!)]
+    async fn test_predict_only_uses_data_for_current_als_profile() -> Result<(), ErrorBox> {
+        let (mut controller, _, prediction_rx) = setup().await?;
         controller.data.entries = vec![
             Entry::new(ALS_DIM, 10, 15),
             Entry::new(ALS_DIM, 20, 30),
@@ -392,7 +403,7 @@ mod tests {
             Entry::new(ALS_BRIGHT, 51, 100),
         ];
 
-        controller.predict(ALS_DIM, 50);
+        controller.predict(ALS_DIM, 50).await;
 
         assert_eq!(43, prediction_rx.try_recv()?);
         Ok(())
