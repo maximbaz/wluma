@@ -144,11 +144,9 @@ async fn main() {
         config::Als::Time { thresholds } => als::Als::Time(als::time::Als::new(thresholds)),
         config::Als::Webcam { video, thresholds } => als::Als::Webcam({
             let (webcam_tx, webcam_rx) = channel::bounded(128);
-            tasks.push(smol::spawn({
-                // TODO: make async
-                smol::unblock(move || {
-                    als::webcam::Webcam::new(webcam_tx, video).run();
-                })
+            // TODO: make async
+            tasks.push(smol::unblock(move || {
+                als::webcam::Webcam::new(webcam_tx, video).run();
             }));
             als::webcam::Als::new(webcam_rx, thresholds)
         }),
