@@ -57,8 +57,11 @@ impl Controller {
                     .await
                     .expect("prediction_rx closed unexpectedly");
 
+                log::info!("Current={new_brightness} Predicted={predicted_value:?}");
+
                 // 1. check if user wants to learn a new value - this overrides any ongoing activity
                 if Some(new_brightness) != self.current {
+                    log::info!("Brightness was changed from outside!");
                     return self.update_current(new_brightness).await;
                 }
 
@@ -69,6 +72,7 @@ impl Controller {
 
                 // 3. continue the transition if there is one in progress
                 if self.target.is_some() {
+                    log::info!("Target is present, transitioning to {:?}!", self.target);
                     return self.transition().await;
                 }
             }
