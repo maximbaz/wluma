@@ -113,7 +113,12 @@ impl Controller {
                 } else {
                     let new_value = current.saturating_add_signed(target.step);
                     match self.brightness.set(new_value).await {
-                        Ok(new_value) => self.current = Some(new_value),
+                        Ok(set_value) => {
+                            if set_value == current {
+                                log::warn!("Unable to change brightness from {current} to {new_value}, please report if you know how to reproduce this");
+                            }
+                            self.current = Some(set_value);
+                        }
                         Err(err) => log::error!(
                             "Unable to set brightness to value '{}': {:?}",
                             new_value,
