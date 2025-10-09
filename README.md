@@ -141,7 +141,7 @@ This is a useful test to validate that wluma does indeed see the screen contents
 
 1. Stop any running `wluma` instances
 1. Run the latest code from `main` branch (unless another branch was given to you by the maintainers): `RUST_LOG=trace cargo run`
-1. Open https://deadpixel.org and start the test.
+1. Open https://deadpixeltest.org/ and start the test.
 1. Make sure that **the entire screen** is covered with a single solid color, nothing else should be visible - not a status bar nor a notification, nothing else.
 1. Repeat for each of these colors: `black`, `white`, `red`, `green`, `blue`:
    1. Let the color be visible for a few seconds.
